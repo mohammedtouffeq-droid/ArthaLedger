@@ -1,0 +1,3 @@
+# Pure Python 3.12 standard library runtime (zero external dependency lock-in).
+# Optional dev/test runner:
+pytest>=8.0.0

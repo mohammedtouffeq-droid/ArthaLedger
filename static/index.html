@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#090d11">
+    <title>ArthaLedger | Institutional AI Financial Workbench</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="nav-rail" aria-label="Workspace Navigation">
+            <div class="brand-block">
+                <div class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 28 28" width="24" height="24" fill="none">
+                        <rect x="2" y="2" width="24" height="24" rx="5" stroke="#e8a317" stroke-width="1.75"/>
+                        <path d="M7 20L14 7L21 20" stroke="#f8fafc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M9.5 16L13 13.2L16 14.8L19.5 11.2" stroke="#10b981" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div>
+                    <div class="brand-name">ArthaLedger</div>
+                    <div class="brand-sub">AI FINANCE WORKBENCH</div>
+                </div>
+            </div>
+
+            <div class="rail-section-label">FINANCIAL MODULES</div>
+            <nav class="nav-list" id="workspaceNav">
+                <button type="button" class="nav-btn active" data-tab="ledger">
+                    <span class="nav-index">01</span>
+                    <span class="nav-label">UPI Ledger &amp; Cashflow</span>
+                </button>
+                <button type="button" class="nav-btn" data-tab="fraud">
+                    <span class="nav-index">02</span>
+                    <span class="nav-label">UPI Fraud Shield</span>
+                </button>
+                <button type="button" class="nav-btn" data-tab="tax">
+                    <span class="nav-index">03</span>
+                    <span class="nav-label">Tax &amp; SIP Wealth</span>
+                </button>
+                <button type="button" class="nav-btn" data-tab="market">
+                    <span class="nav-index">04</span>
+                    <span class="nav-label">Paper Backtester</span>
+                </button>
+                <button type="button" class="nav-btn" data-tab="sme">
+                    <span class="nav-index">05</span>
+                    <span class="nav-label">SME GST &amp; Runway</span>
+                </button>
+                <button type="button" class="nav-btn" data-tab="copilot">
+                    <span class="nav-index">06</span>
+                    <span class="nav-label">Cited AI Copilot</span>
+                </button>
+            </nav>
+
+            <div class="rail-footer">
+                <div class="telemetry-pill">
+                    <span class="status-dot"></span>
+                    <span>Synthetic Data Mode</span>
+                </div>
+                <p class="compliance-note">
+                    Non-advisory computation engine. Zero real credentials, zero live trades.
+                </p>
+            </div>
+        </aside>
+
+        <div class="main-column">
+            <header class="topbar">
+                <div class="topbar-title-group">
+                    <h1 id="activeViewTitle">UPI Ledger &amp; Burn Telemetry</h1>
+                    <span class="topbar-tag">Arthaton 2026 Compliant • INR Precision</span>
+                </div>
+
+                <div class="topbar-controls">
+                    <label class="field-inline" for="personaSelect">
+                        <span>Scenario</span>
+                        <select id="personaSelect" aria-label="Sample Financial Persona">
+                            <option value="student_budget">Student Budget (Rs.18.5k)</option>
+                            <option value="salaried_investor">Salaried Engineer (Rs.14.5L)</option>
+                            <option value="sme_retailer">Local SME Trader (GST)</option>
+                        </select>
+                    </label>
+                    <button type="button" class="btn btn-secondary" id="btnLoadPersona">Load Scenario</button>
+                    <button type="button" class="btn btn-outline" id="btnOpenSettings">AI Keys &amp; Model</button>
+                </div>
+            </header>
+
+            <section class="kpi-strip" aria-label="Unified Financial Summary">
+                <article class="kpi-card">
+                    <div class="kpi-label">MONTHLY NET CASHFLOW</div>
+                    <div class="kpi-value" id="kpiNetCashflow">Rs.0</div>
+                    <div class="kpi-meta" id="kpiCashflowMeta">Run Ledger to compute</div>
+                </article>
+                <article class="kpi-card">
+                    <div class="kpi-label">OPTIMAL TAX LIABILITY</div>
+                    <div class="kpi-value" id="kpiTaxLiability">Rs.0</div>
+                    <div class="kpi-meta" id="kpiTaxMeta">Sec 115BAC Budget 2025</div>
+                </article>
+                <article class="kpi-card">
+                    <div class="kpi-label">PAYMENT FRAUD RISK</div>
+                    <div class="kpi-value" id="kpiFraudScore">0 / 100</div>
+                    <div class="kpi-meta" id="kpiFraudMeta">Awaiting SMS / URI audit</div>
+                </article>
+                <article class="kpi-card">
+                    <div class="kpi-label">PAPER STRATEGY RETURN</div>
+                    <div class="kpi-value" id="kpiBacktestReturn">0.0%</div>
+                    <div class="kpi-meta" id="kpiBacktestMeta">Historical simulation only</div>
+                </article>
+            </section>
+
+            <main class="workspace-views">
+                <!-- 01. UPI LEDGER -->
+                <section class="view-panel active" id="view-ledger">
+                    <div class="grid-2">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>UPI &amp; Bank SMS Parser</h2>
+                                    <p>Paste synthetic bank or UPI debit/credit alerts to audit spend velocity and stealth subscriptions.</p>
+                                </div>
+                                <div class="btn-row">
+                                    <button type="button" class="btn btn-primary" id="btnAnalyzeLedger">Analyze Ledger</button>
+                                    <button type="button" class="btn btn-outline" id="btnExportCsv">Export CSV</button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <label for="monthlyBudgetInput">Monthly Spend Cap (INR)</label>
+                                <input id="monthlyBudgetInput" type="number" min="0" value="15000">
+                            </div>
+                            <label class="field-label" for="smsLedgerInput">Transaction Alert Feed (One entry per line)</label>
+                            <textarea id="smsLedgerInput" rows="11" spellcheck="false"></textarea>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>Category Allocation &amp; Anomalies</h2>
+                                    <p id="ledgerSummaryBanner">Normalized cashflow telemetry with deterministic outlier citations.</p>
+                                </div>
+                            </div>
+                            <canvas id="ledgerChart" class="chart-canvas" height="220"></canvas>
+                            <div class="subpanel">
+                                <h3>Cited Findings &amp; Recurring Subscriptions</h3>
+                                <ul class="audit-list" id="ledgerAnomaliesList"></ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel mt-16">
+                        <div class="panel-header">
+                            <h2>Normalized Transaction Register</h2>
+                            <span class="mono-badge" id="ledgerTxnCount">0 Entries</span>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Citation</th>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Category</th>
+                                        <th>Counterparty</th>
+                                        <th class="num">Amount (INR)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ledgerTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 02. FRAUD SHIELD -->
+                <section class="view-panel" id="view-fraud">
+                    <div class="grid-2">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>UPI Collect &amp; Phishing Inspector</h2>
+                                    <p>Inspect SMS alerts, upi://pay intent URIs, suspicious links, or payment request text before approving.</p>
+                                </div>
+                                <button type="button" class="btn btn-primary" id="btnRunFraudAudit">Run Risk Audit</button>
+                            </div>
+                            <div class="preset-bar">
+                                <button type="button" class="chip-btn" data-fraud-preset="kyc">Sample KYC Phishing SMS</button>
+                                <button type="button" class="chip-btn" data-fraud-preset="collect">Sample Collect Scam URI</button>
+                                <button type="button" class="chip-btn" data-fraud-preset="legit">Sample Safe Merchant URI</button>
+                            </div>
+                            <label class="field-label" for="fraudPayloadInput">Suspicious Message, Link, or UPI URI</label>
+                            <textarea id="fraudPayloadInput" rows="6" spellcheck="false"></textarea>
+                            <label class="field-label" for="fraudContextInput">Optional Context (e.g. "Caller promised OLX refund")</label>
+                            <input id="fraudContextInput" type="text" placeholder="Optional context behind the payment request">
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <h2>Deterministic Fraud Verdict</h2>
+                                <span class="verdict-badge" id="fraudVerdictBadge">UNSCANNED</span>
+                            </div>
+                            <div class="risk-meter-wrap">
+                                <div class="risk-meter-head">
+                                    <span>Composite Risk Index</span>
+                                    <strong class="mono" id="fraudRiskNumber">0 / 100</strong>
+                                </div>
+                                <div class="risk-track"><div class="risk-fill" id="fraudRiskBar"></div></div>
+                            </div>
+                            <div class="callout-box" id="fraudActionBox">
+                                Paste a payment alert or UPI link and execute Run Risk Audit to inspect structural flags.
+                            </div>
+                            <h3>Rule-by-Rule Risk Citations</h3>
+                            <ul class="audit-list" id="fraudFlagsList"></ul>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 03. TAX & WEALTH -->
+                <section class="view-panel" id="view-tax">
+                    <div class="grid-2">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>Indian Income Tax Regime Optimizer (FY 2025-26 / 2026-27)</h2>
+                                    <p>Exact Budget 2025 Section 115BAC slabs, Rs.75k Standard Deduction, 87A rebate, marginal relief &amp; 4% cess.</p>
+                                </div>
+                                <button type="button" class="btn btn-primary" id="btnComputeTaxWealth">Calculate Tax &amp; Wealth</button>
+                            </div>
+                            <div class="form-grid-2">
+                                <div class="form-row">
+                                    <label for="taxGrossInput">Annual Gross Income (INR)</label>
+                                    <input id="taxGrossInput" type="number" min="0" value="1450000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="taxSalariedInput">Employment Type</label>
+                                    <select id="taxSalariedInput">
+                                        <option value="true">Salaried (Std Ded Eligible)</option>
+                                        <option value="false">Freelance / Business</option>
+                                    </select>
+                                </div>
+                                <div class="form-row">
+                                    <label for="tax80cInput">Sec 80C Investments (Cap 1.5L)</label>
+                                    <input id="tax80cInput" type="number" min="0" value="150000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="tax80dInput">Sec 80D Health Insurance</label>
+                                    <input id="tax80dInput" type="number" min="0" value="25000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="taxHraInput">HRA Exemption (Old Regime)</label>
+                                    <input id="taxHraInput" type="number" min="0" value="180000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="taxNpsInput">NPS Sec 80CCD(1B) (Cap 50k)</label>
+                                    <input id="taxNpsInput" type="number" min="0" value="50000">
+                                </div>
+                            </div>
+
+                            <hr class="divider">
+                            <h3 class="section-subhead">SIP Wealth &amp; EMI Prepayment Parameters</h3>
+                            <div class="form-grid-3">
+                                <div class="form-row">
+                                    <label for="sipMonthlyInput">Monthly SIP (INR)</label>
+                                    <input id="sipMonthlyInput" type="number" min="0" value="15000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="sipYearsInput">Horizon (Years)</label>
+                                    <input id="sipYearsInput" type="number" min="1" max="40" value="12">
+                                </div>
+                                <div class="form-row">
+                                    <label for="sipReturnInput">Expected Return (%)</label>
+                                    <input id="sipReturnInput" type="number" step="0.5" value="12.0">
+                                </div>
+                                <div class="form-row">
+                                    <label for="emiPrincipalInput">Loan Principal (INR)</label>
+                                    <input id="emiPrincipalInput" type="number" min="1000" value="1200000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="emiRateInput">Loan Interest (%)</label>
+                                    <input id="emiRateInput" type="number" step="0.1" value="9.2">
+                                </div>
+                                <div class="form-row">
+                                    <label for="emiExtraInput">Extra Prepay / Mo</label>
+                                    <input id="emiExtraInput" type="number" min="0" value="3000">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <h2>Regime Delta &amp; Inflation-Adjusted Wealth</h2>
+                                <span class="mono-badge" id="taxWinnerBadge">CALCULATE</span>
+                            </div>
+                            <div class="split-metrics" id="taxComparisonCards"></div>
+                            <canvas id="wealthChart" class="chart-canvas" height="230"></canvas>
+                            <div class="subpanel" id="emiSavingsSummary"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 04. PAPER BACKTESTER -->
+                <section class="view-panel" id="view-market">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <h2>Historical &amp; Synthetic Market Paper Backtester</h2>
+                                <p>Simulate systematic moving-average or dip-accumulation rules on historical index proxies (10 bps cost, zero live trading).</p>
+                            </div>
+                            <button type="button" class="btn btn-primary" id="btnRunBacktest">Run Simulation</button>
+                        </div>
+                        <div class="form-grid-4">
+                            <div class="form-row">
+                                <label for="btSymbolSelect">Market Benchmark</label>
+                                <select id="btSymbolSelect">
+                                    <option value="NIFTY50_PROXY">NIFTY 50 Proxy</option>
+                                    <option value="IT_LARGE_CAP">NSE IT Basket Proxy</option>
+                                    <option value="BANK_INDEX_PROXY">Banking &amp; PSU Proxy</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label for="btStrategySelect">Strategy Rule</label>
+                                <select id="btStrategySelect">
+                                    <option value="sma_crossover">SMA Crossover (Trend)</option>
+                                    <option value="dip_accumulation">Drawdown Dip Accumulation</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label for="btCapitalInput">Paper Capital (INR)</label>
+                                <input id="btCapitalInput" type="number" min="1000" value="100000">
+                            </div>
+                            <div class="form-row">
+                                <label for="btWindowsInput">Fast / Slow Weeks</label>
+                                <div class="inline-pair">
+                                    <input id="btFastInput" type="number" min="2" max="10" value="3">
+                                    <input id="btSlowInput" type="number" min="3" max="18" value="7">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="split-metrics mt-12" id="backtestMetricsRow"></div>
+                        <canvas id="backtestChart" class="chart-canvas" height="260"></canvas>
+                        <div class="table-wrap mt-12">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Week</th>
+                                        <th>Paper Signal</th>
+                                        <th class="num">Index Price</th>
+                                        <th class="num">Units / Realized PnL %</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="backtestTradesBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 05. SME GST & RUNWAY -->
+                <section class="view-panel" id="view-sme">
+                    <div class="grid-2">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h2>SME GST Invoice &amp; Working Capital Stress Test</h2>
+                                    <p>Compute CGST/SGST vs IGST with Input Tax Credit offset and 90-day delayed-receivables cashflow.</p>
+                                </div>
+                                <button type="button" class="btn btn-primary" id="btnComputeSme">Compute GST &amp; Runway</button>
+                            </div>
+                            <div class="form-grid-3">
+                                <div class="form-row">
+                                    <label for="smeSupplySelect">Supply Jurisdiction</label>
+                                    <select id="smeSupplySelect">
+                                        <option value="intra_state">Intra-State (CGST + SGST)</option>
+                                        <option value="inter_state">Inter-State (IGST)</option>
+                                    </select>
+                                </div>
+                                <div class="form-row">
+                                    <label for="smeItcInput">Available ITC (INR)</label>
+                                    <input id="smeItcInput" type="number" min="0" value="6800">
+                                </div>
+                                <div class="form-row">
+                                    <label for="smeOpeningCash">Opening Cash (INR)</label>
+                                    <input id="smeOpeningCash" type="number" min="0" value="145000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="smeFixedCost">Monthly Fixed Cost</label>
+                                    <input id="smeFixedCost" type="number" min="1" value="62000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="smeCollections">Monthly Collections</label>
+                                    <input id="smeCollections" type="number" min="0" value="108000">
+                                </div>
+                                <div class="form-row">
+                                    <label for="smeReceivables">Pending Receivables</label>
+                                    <input id="smeReceivables" type="number" min="0" value="72000">
+                                </div>
+                            </div>
+                            <label class="field-label" for="smeItemsInput">Invoice Items JSON ([name, qty, unit_price, gst_rate])</label>
+                            <textarea id="smeItemsInput" rows="7" spellcheck="false"></textarea>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <h2>Tax Invoice &amp; 90-Day Liquidity Projection</h2>
+                                <span class="mono-badge" id="smeRunwayBadge">-- Days Runway</span>
+                            </div>
+                            <div class="split-metrics" id="smeSummaryCards"></div>
+                            <canvas id="smeChart" class="chart-canvas" height="220"></canvas>
+                            <div class="table-wrap mt-12">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Item</th>
+                                            <th class="num">Taxable</th>
+                                            <th class="num">GST %</th>
+                                            <th class="num">Total (INR)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="smeLinesBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 06. CITED COPILOT -->
+                <section class="view-panel" id="view-copilot">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <h2>Evidence-Cited AI Financial Copilot (Text + Image Audit)</h2>
+                                <p>Every answer grounds directly in computed Ledger, Fraud, Tax, Backtest, and GST telemetry. Upload a bill or UPI screenshot for multimodal inspection.</p>
+                            </div>
+                            <span class="mono-badge" id="copilotProviderStatus">Engine: Auto</span>
+                        </div>
+
+                        <div class="copilot-controls">
+                            <div class="preset-bar">
+                                <button type="button" class="chip-btn" data-copilot-q="Audit my current cashflow, flag outlier spends or recurring subscriptions, and tell me how much tax I save.">Audit Cashflow &amp; Tax</button>
+                                <button type="button" class="chip-btn" data-copilot-q="Review the fraud audit flags on my payment message and explain why it is safe or dangerous.">Explain Fraud Audit</button>
+                                <button type="button" class="chip-btn" data-copilot-q="Summarize my paper backtest drawdown vs benchmark and SME 90-day liquidity runway.">Summarize Market &amp; SME Risk</button>
+                            </div>
+
+                            <div class="upload-row">
+                                <label class="file-label" for="copilotImageInput">
+                                    Attach Receipt / Payment Screenshot (PNG/JPG/WebP)
+                                    <input id="copilotImageInput" type="file" accept="image/png,image/jpeg,image/webp">
+                                </label>
+                                <span id="copilotImageStatus" class="muted-text">No image attached</span>
+                                <button type="button" class="btn btn-outline hidden" id="btnClearImage">Remove Image</button>
+                            </div>
+                        </div>
+
+                        <div class="copilot-output" id="copilotOutput">
+                            <p class="muted-text">Ask a question below. Telemetry from all active tabs is automatically attached with verifiable citation IDs.</p>
+                        </div>
+
+                        <form class="copilot-form" id="copilotForm">
+                            <input id="copilotQuestionInput" type="text" placeholder="Ask about your budget burn, UPI scam risk, New vs Old Tax saving, or attached receipt screenshot...">
+                            <button type="submit" class="btn btn-primary">Ask Copilot</button>
+                        </form>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Settings Modal for Runtime BYOK AI Provider Selection (Session-Only, Never Persisted to Repo) -->
+    <div class="modal-backdrop hidden" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2 id="settingsTitle">AI Model &amp; Session Key Configuration</h2>
+                <button type="button" class="btn btn-outline" id="btnCloseSettings">Close</button>
+            </div>
+            <p class="modal-desc">
+                ArthaLedger executes deterministic Indian financial math locally first. Select an external model below for natural-language synthesis and screenshot vision inspection, or keep Deterministic Citation Mode for zero-key evaluation. Keys stay strictly inside browser sessionStorage for the current tab.
+            </p>
+            <div class="form-row">
+                <label for="aiProviderSelect">Provider Route</label>
+                <select id="aiProviderSelect">
+                    <option value="auto">Auto (Server Env Key or Deterministic Fallback)</option>
+                    <option value="deterministic">Deterministic Cited Engine Only (Offline / Zero-Key)</option>
+                    <option value="gemini">Google Gemini (gemini-2.5-flash)</option>
+                    <option value="bharatcode">BharatCode OpenAI-Compatible (glm-5.3-flash / deepseek-chat)</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label for="aiModelSelect">Model Identifier</label>
+                <select id="aiModelSelect">
+                    <option value="gemini-2.5-flash">gemini-2.5-flash (Text + Vision)</option>
+                    <option value="gemini-2.0-flash">gemini-2.0-flash (Text + Vision)</option>
+                    <option value="glm-5.3-flash">glm-5.3-flash (BharatCode Text + Vision)</option>
+                    <option value="deepseek-chat">deepseek-chat (BharatCode Text)</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label for="aiApiKeyInput">Optional Session API Key (Leave blank to use server .env or deterministic mode)</label>
+                <input id="aiApiKeyInput" type="password" autocomplete="off" placeholder="Optional API key stored in tab sessionStorage only">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" id="btnClearSessionKey">Clear Key</button>
+                <button type="button" class="btn btn-primary" id="btnSaveSettings">Apply Settings</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

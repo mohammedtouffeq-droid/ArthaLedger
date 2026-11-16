@@ -1,0 +1,153 @@
+"""Historical and synthetic NSE market paper-trading backtester (non-advisory simulation)."""
+from __future__ import annotations
+
+import math
+from typing import Any, Dict, List
+
+# Synthetic weekly benchmark closes (INR index points / share prices) modeled after typical Indian market regimes.
+BENCHMARK_SERIES: Dict[str, Dict[str, Any]] = {
+    "NIFTY50_PROXY": {
+        "label": "NIFTY 50 Historical Proxy (52W Synthetic Benchmark)",
+        "prices": [
+            22450, 22610, 22390, 22840, 23120, 23010, 23480, 23760, 23540, 23920,
+            24250, 24610, 24480, 24190, 23820, 23310, 23050, 23490, 23880, 24150,
+            24520, 24980, 25340, 25120, 24790, 24360, 24020, 24290, 24680, 25040,
+            25410, 25760, 25590, 25940, 26280, 26550,
+        ],
+    },
+    "IT_LARGE_CAP": {
+        "label": "NSE IT Basket Proxy (Mean-Reverting Export Cycle)",
+        "prices": [
+            3420, 3490, 3550, 3480, 3390, 3310, 3260, 3340, 3460, 3580,
+            3690, 3780, 3720, 3610, 3530, 3440, 3380, 3450, 3570, 3690,
+            3820, 3910, 3860, 3790, 3740, 3830, 3940, 4020, 3970, 4080,
+            4160, 4210, 4150, 4260, 4340, 4410,
+        ],
+    },
+    "BANK_INDEX_PROXY": {
+        "label": "Banking & PSU Proxy (Rate-Cycle Volatile Series)",
+        "prices": [
+            47800, 48300, 47950, 47200, 46600, 47100, 48200, 49100, 49850, 50400,
+            51200, 50700, 49600, 48400, 47900, 48700, 49500, 50100, 50900, 51800,
+            52400, 51900, 51100, 50400, 50950, 51700, 52600, 53100, 52700, 53400,
+            53900, 54250, 53800, 54500, 55100, 55600,
+        ],
+    },
+}
+
+
+def run_paper_backtest(
+    symbol: str = "NIFTY50_PROXY",
+    strategy: str = "sma_crossover",
+    initial_capital: float = 100000.0,
+    fast_window: int = 3,
+    slow_window: int = 7,
+    custom_prices: List[float] | None = None,
+) -> Dict[str, Any]:
+    """
+    Runs a strictly historical/paper-trading simulation with transaction cost (10 bps per leg).
+    Zero real orders or broker connections.
+    """
+    sym = symbol if symbol in BENCHMARK_SERIES else "NIFTY50_PROXY"
+    if custom_prices and len(custom_prices) >= 12:
+        prices = [float(p) for p in custom_prices if float(p) > 0]
+        label = "Custom Historical Close Series"
+    else:
+        prices = list(BENCHMARK_SERIES[sym]["prices"])
+        label = BENCHMARK_SERIES[sym]["label"]
+
+    capital = max(1000.0, float(initial_capital or 100000.0))
+    fast_w = max(2, min(10, int(fast_window or 3)))
+    slow_w = max(fast_w + 1, min(18, int(slow_window or 7)))
+    fee_rate = 0.001  # 10 bps transaction cost & STT proxy
+
+    cash = capital
+    units = 0.0
+    trades: List[Dict[str, Any]] = []
+    equity_curve: List[Dict[str, Any]] = []
+    peak_equity = capital
+    max_drawdown_pct = 0.0
+
+    strat = strategy if strategy in ("sma_crossover", "dip_accumulation") else "sma_crossover"
+
+    for i, price in enumerate(prices):
+        if strat == "sma_crossover" and i >= slow_w:
+            fast_sma = sum(prices[i - fast_w + 1 : i + 1]) / fast_w
+            slow_sma = sum(prices[i - slow_w + 1 : i + 1]) / slow_w
+            if fast_sma > slow_sma and units == 0.0 and cash > 0:
+                net_cash = cash * (1.0 - fee_rate)
+                units = net_cash / price
+                cash = 0.0
+                trades.append({"week": i + 1, "side": "BUY_PAPER", "price": price, "units": round(units, 4)})
+            elif fast_sma < slow_sma and units > 0.0:
+                proceeds = (units * price) * (1.0 - fee_rate)
+                entry_price = next((t["price"] for t in reversed(trades) if t["side"] == "BUY_PAPER"), price)
+                pnl_pct = ((price - entry_price) / entry_price) * 100.0
+                cash = proceeds
+                units = 0.0
+                trades.append({"week": i + 1, "side": "SELL_PAPER", "price": price, "pnl_pct": round(pnl_pct, 2)})
+        elif strat == "dip_accumulation":
+            # Staged paper deployment: 30% initial, +20% cash on >=2.5% dip from rolling 4-week high
+            if i == 0:
+                deploy = cash * 0.30
+                units += (deploy * (1.0 - fee_rate)) / price
+                cash -= deploy
+                trades.append({"week": 1, "side": "BUY_PAPER", "price": price, "units": round(units, 4)})
+            elif i >= 4 and cash > capital * 0.05:
+                recent_high = max(prices[max(0, i - 4) : i])
+                if price <= recent_high * 0.975:
+                    deploy = cash * 0.45
+                    bought = (deploy * (1.0 - fee_rate)) / price
+                    units += bought
+                    cash -= deploy
+                    trades.append({"week": i + 1, "side": "DIP_BUY_PAPER", "price": price, "units": round(bought, 4)})
+
+        equity = cash + units * price
+        if equity > peak_equity:
+            peak_equity = equity
+        dd_pct = ((peak_equity - equity) / peak_equity) * 100.0 if peak_equity > 0 else 0.0
+        if dd_pct > max_drawdown_pct:
+            max_drawdown_pct = dd_pct
+
+        bh_equity = (capital * (1.0 - fee_rate) / prices[0]) * price
+        equity_curve.append({
+            "period": i + 1,
+            "price": round(price, 2),
+            "strategy_equity": round(equity, 2),
+            "buy_hold_equity": round(bh_equity, 2),
+            "drawdown_pct": round(dd_pct, 2),
+        })
+
+    final_equity = equity_curve[-1]["strategy_equity"]
+    bh_final = equity_curve[-1]["buy_hold_equity"]
+    total_return_pct = ((final_equity - capital) / capital) * 100.0
+    bh_return_pct = ((bh_final - capital) / capital) * 100.0
+
+    # Annualize assuming weekly bars (52 weeks/yr)
+    yrs = max(len(prices) / 52.0, 0.25)
+    cagr_pct = (((final_equity / capital) ** (1.0 / yrs)) - 1.0) * 100.0
+
+    closed_sells = [t for t in trades if "pnl_pct" in t]
+    wins = sum(1 for t in closed_sells if t["pnl_pct"] > 0)
+    win_rate_pct = (wins / len(closed_sells) * 100.0) if closed_sells else (100.0 if final_equity >= capital else 0.0)
+
+    return {
+        "success": True,
+        "paper_trading_only": True,
+        "disclaimer": "Historical/synthetic paper simulation only. Non-advisory; no live broker orders supported.",
+        "symbol": sym,
+        "label": label,
+        "strategy": strat,
+        "periods": len(prices),
+        "initial_capital": round(capital, 2),
+        "final_equity": round(final_equity, 2),
+        "total_return_pct": round(total_return_pct, 2),
+        "annualized_cagr_pct": round(cagr_pct, 2),
+        "benchmark_return_pct": round(bh_return_pct, 2),
+        "alpha_vs_benchmark_pct": round(total_return_pct - bh_return_pct, 2),
+        "max_drawdown_pct": round(max_drawdown_pct, 2),
+        "win_rate_pct": round(win_rate_pct, 1),
+        "trade_count": len(trades),
+        "trades": trades[:16],
+        "equity_curve": equity_curve,
+    }
