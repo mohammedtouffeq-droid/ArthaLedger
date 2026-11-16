@@ -1,8 +1,10 @@
 """ArthaLedger AI HTTP server and Vercel-compatible request handler."""
 from __future__ import annotations
 
+import base64
 import json
 import os
+import re
 import sys
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,15 +15,22 @@ ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from engines.copilot import ask_financial_copilot, compute_financial_health_score
-from engines.fraud_shield import analyze_payment_risk
-from engines.market_backtest import BENCHMARK_SERIES, POPULAR_INDIAN_FUNDS, run_paper_backtest, search_amfi_funds
+from engines.copilot import ask_financial_copilot, compute_financial_health_score, extract_payment_text_from_image
+from engines.fraud_shield import analyze_payment_risk, decode_qr_from_bytes, generate_sample_qr_png
+from engines.market_backtest import (
+    BENCHMARK_SERIES,
+    POPULAR_INDIAN_FUNDS,
+    compare_amfi_funds,
+    run_paper_backtest,
+    search_amfi_funds,
+)
 from engines.sme_gst import compute_gst_and_cashflow
 from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
 from engines.tax_wealth import (
     calculate_indian_tax,
     estimate_equity_mf_tax,
     simulate_emi_prepayment,
+    simulate_ltcg_harvesting,
     simulate_sip_wealth,
     solve_goal_sip,
 )
@@ -188,6 +197,15 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
             self._send_json(search_amfi_funds(q))
             return
 
+        if path == "/api/fraud/sample_qr":
+            kind = (query.get("kind", ["scam"])[0] or "scam").strip().lower()
+            png_bytes = generate_sample_qr_png(kind)
+            if not png_bytes:
+                self._send_json({"success": False, "error": "QR generator unavailable in current runtime."}, status=503)
+                return
+            self._send_bytes(png_bytes, "image/png", status=200)
+            return
+
         if path in ("/", "/index.html") or path.startswith("/static/"):
             rel = "index.html" if path in ("/", "/index.html") else path[len("/static/"):]
             target = _safe_static_path(rel)
@@ -248,6 +266,71 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
             self._send_json(res, status=200 if res.get("success") else 400)
             return
 
+        if path == "/api/fraud/vision_scan":
+            img_data = str(body.get("image_data", "") or "").strip()
+            img_mime = str(body.get("image_mime", "image/png") or "image/png").strip()
+            browser_qr = str(body.get("browser_qr_text", "") or "").strip()
+            if not img_data and not browser_qr:
+                self._send_json({"success": False, "error": "Upload a QR image or payment screenshot to scan."}, status=400)
+                return
+
+            raw_b64 = re.sub(r"^data:[^;]+;base64,", "", img_data, flags=re.I)
+            img_bytes = b""
+            if raw_b64:
+                try:
+                    img_bytes = base64.b64decode(re.sub(r"\s+", "", raw_b64), validate=False)
+                except ValueError:
+                    img_bytes = b""
+
+            opencv_qr = decode_qr_from_bytes(img_bytes) if img_bytes else ""
+            qr_text = opencv_qr or browser_qr
+            methods: list[str] = []
+            if opencv_qr:
+                methods.append("OpenCV QRCodeDetector")
+            if browser_qr and browser_qr != opencv_qr:
+                methods.append("Browser BarcodeDetector")
+
+            vision_text = ""
+            vision_provider = "none"
+            if not (qr_text and qr_text.lower().startswith("upi://")):
+                session_key = str(self.headers.get("X-User-AI-Key", "") or body.get("user_api_key", "")).strip()
+                vis = extract_payment_text_from_image(
+                    image_data=img_data,
+                    image_mime=img_mime,
+                    provider=str(body.get("provider", "auto")),
+                    model=str(body.get("model", "")),
+                    user_api_key=session_key,
+                )
+                vision_text = str(vis.get("extracted_text", "") or "").strip()
+                vision_provider = str(vis.get("vision_provider", "none"))
+                if vision_text:
+                    methods.append(f"Vision OCR ({vision_provider})")
+
+            parts_unique: list[str] = []
+            for p in (qr_text, vision_text):
+                if p and p not in parts_unique:
+                    parts_unique.append(p)
+            combined_payload = "\n".join(parts_unique).strip()
+
+            if not combined_payload:
+                self._send_json({
+                    "success": False,
+                    "error": "No readable QR code detected and live Vision key unavailable. Ensure QR is sharp or add Gemini key in AI Keys.",
+                }, status=422)
+                return
+
+            audit = analyze_payment_risk(combined_payload, claimed_context="Scanned from uploaded QR/payment screenshot")
+            self._send_json({
+                "success": True,
+                "qr_text": qr_text,
+                "vision_text": vision_text,
+                "decoded_payload": combined_payload,
+                "detection_method": " + ".join(methods) or "QR/Image Decoder",
+                "vision_provider": vision_provider,
+                "audit": audit,
+            })
+            return
+
         if path == "/api/tax/compare":
             res = calculate_indian_tax(
                 gross_income=_num(body.get("gross_income"), 0.0),
@@ -283,17 +366,35 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/wealth/goal":
+            annual_ret = _num(body.get("annual_return_pct"), 12.0)
+            yrs = _int_val(body.get("years"), 10)
+            gain_amt = _num(body.get("gain_amount"), 250000.0)
             goal = solve_goal_sip(
                 target_corpus_today_inr=_num(body.get("target_today_inr"), 1000000.0),
-                annual_return_pct=_num(body.get("annual_return_pct"), 12.0),
-                years=_int_val(body.get("years"), 10),
+                annual_return_pct=annual_ret,
+                years=yrs,
                 inflation_pct=_num(body.get("inflation_pct"), 6.0),
             )
             cap_gains = estimate_equity_mf_tax(
-                gain_amount=_num(body.get("gain_amount"), 250000.0),
+                gain_amount=gain_amt,
                 holding_months=_int_val(body.get("holding_months"), 18),
             )
-            self._send_json({"success": True, "goal": goal, "capital_gains_tax": cap_gains})
+            harvest = simulate_ltcg_harvesting(
+                portfolio_value=_num(body.get("portfolio_value"), 800000.0),
+                unrealized_gain=gain_amt,
+                annual_harvest_limit=125000.0,
+                years=min(yrs, 5),
+                annual_return_pct=annual_ret,
+            )
+            self._send_json({"success": True, "goal": goal, "capital_gains_tax": cap_gains, "harvest": harvest})
+            return
+
+        if path == "/api/market/compare":
+            res = compare_amfi_funds(
+                scheme_a=str(body.get("scheme_a", "120716")),
+                scheme_b=str(body.get("scheme_b", "122639")),
+            )
+            self._send_json(res, status=200 if res.get("success") else 400)
             return
 
         if path == "/api/market/backtest":

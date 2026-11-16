@@ -118,6 +118,12 @@ def _derive_actions_and_citations(context: Dict[str, Any]) -> tuple[List[Dict[st
 
     if sme.get("grand_invoice_total"):
         citations.extend(["GST-ITC-SET", "WC-STRESS-90D"])
+    if context.get("comparison"):
+        citations.append("MF-CORR-OVERLAP")
+    if context.get("harvest"):
+        citations.append("TAX-HARVEST-112A")
+    if context.get("qr_scan"):
+        citations.append("FRAUD-QR-SCAN")
 
     return actions, sorted(set(citations))
 
@@ -403,3 +409,44 @@ def ask_financial_copilot(
                 return fallback
 
     return _build_deterministic_answer(q, ctx, has_img)
+
+
+def extract_payment_text_from_image(
+    image_data: str,
+    image_mime: str = "image/png",
+    provider: str = "auto",
+    model: str = "",
+    user_api_key: str = "",
+) -> Dict[str, Any]:
+    """Extracts payment URIs, VPAs, phone numbers, URLs, and coercion cues from an uploaded QR or payment screenshot."""
+    mime, b64 = _sanitize_image(image_data, image_mime)
+    if not b64:
+        return {"success": False, "extracted_text": "", "vision_provider": "none", "error": "Invalid image data"}
+
+    prov = str(provider or "auto").strip().lower()
+    gemini_key = (user_api_key if prov == "gemini" else "") or os.environ.get("GEMINI_API_KEY", "").strip()
+    bc_key = (user_api_key if prov == "bharatcode" else "") or os.environ.get("BHARATCODE_API_KEY", "").strip()
+    extract_q = (
+        "Extract EVERY payment detail verbatim from this QR code or payment/SMS screenshot into one compact plain-text block: "
+        "include any upi://pay?... URI, VPA (@handle), payee display name, INR amount, phone numbers, domain/URLs, .apk filenames, "
+        "and exact visible warning/cashback/PIN/KYC lines. Plain text only, zero markdown."
+    )
+
+    if prov != "deterministic" and (prov in ("gemini", "auto")) and gemini_key:
+        for chosen_m in GEMINI_MODELS:
+            try:
+                txt = _call_gemini(gemini_key, chosen_m, extract_q, "{}", mime, b64, history=[])
+                if txt:
+                    return {"success": True, "extracted_text": txt, "vision_provider": f"gemini ({chosen_m})"}
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
+                continue
+
+    if prov != "deterministic" and (prov in ("bharatcode", "auto")) and bc_key:
+        try:
+            txt = _call_bharatcode(bc_key, "glm-5.3-flash", extract_q, "{}", mime, b64, history=[])
+            if txt:
+                return {"success": True, "extracted_text": txt, "vision_provider": "bharatcode (glm-5.3-flash)"}
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
+            pass
+
+    return {"success": False, "extracted_text": "", "vision_provider": "none"}

@@ -13,8 +13,12 @@ from typing import Any, Dict, List
 POPULAR_INDIAN_FUNDS: List[Dict[str, str]] = [
     {"schemeCode": "120716", "schemeName": "UTI Nifty 50 Index Fund - Direct Plan - Growth"},
     {"schemeCode": "122639", "schemeName": "Parag Parikh Flexi Cap Fund - Direct Plan - Growth"},
-    {"schemeCode": "118989", "schemeName": "HDFC Mid-Cap Opportunities Fund - Direct Plan - Growth"},
+    {"schemeCode": "118989", "schemeName": "HDFC Mid Cap Fund - Direct Plan - Growth Option"},
     {"schemeCode": "125497", "schemeName": "SBI Small Cap Fund - Direct Plan - Growth"},
+    {"schemeCode": "120503", "schemeName": "Axis ELSS Tax Saver Fund - Direct Plan - Growth Option"},
+    {"schemeCode": "119091", "schemeName": "HDFC Liquid Fund - Direct Plan - Growth Option"},
+    {"schemeCode": "120684", "schemeName": "ICICI Prudential Nifty Next 50 Index Fund - Direct Plan - Growth"},
+    {"schemeCode": "119788", "schemeName": "SBI Gold Fund - Direct Plan - Growth"},
 ]
 
 BENCHMARK_SERIES: Dict[str, Dict[str, Any]] = {
@@ -99,6 +103,74 @@ def simulate_direct_vs_regular(monthly_sip: float = 15000.0, years: int = 15, gr
     }
 
 
+def _load_amfi_or_fallback(amfi_scheme_code: str, fallback_sym: str) -> tuple[List[float], List[str], str, str, str]:
+    """Loads up to 52 weekly-sampled live AMFI NAV bars, falling back cleanly to synthetic series offline."""
+    sym = fallback_sym if fallback_sym in BENCHMARK_SERIES else "NIFTY50_PROXY"
+    code = re.sub(r"[^0-9]", "", str(amfi_scheme_code or ""))
+    if not code:
+        return list(BENCHMARK_SERIES[sym]["prices"]), [], sym, BENCHMARK_SERIES[sym]["label"], "synthetic_benchmark_proxy"
+
+    try:
+        cache_k = f"nav:{code}"
+        if cache_k in _MF_CACHE:
+            nav_payload = _MF_CACHE[cache_k]
+        else:
+            req = urllib.request.Request(f"https://api.mfapi.in/mf/{code}", headers={"User-Agent": "ArthaLedger/3.0"})
+            with urllib.request.urlopen(req, timeout=7) as resp:
+                nav_payload = json.loads(resp.read().decode("utf-8"))
+            _MF_CACHE[cache_k] = nav_payload
+
+        raw_rows = list(reversed((nav_payload.get("data") or [])[:260]))
+        sampled = raw_rows[::5] if len(raw_rows) > 80 else raw_rows
+        nav_prices = [float(r["nav"]) for r in sampled if float(r.get("nav") or 0) > 0]
+        if len(nav_prices) >= 12:
+            dates = [str(r.get("date", "")) for r in sampled[: len(nav_prices)]]
+            meta = nav_payload.get("meta") or {}
+            label = str(meta.get("scheme_name") or f"AMFI Mutual Fund {code}")
+            return nav_prices, dates, f"AMFI:{code}", label, "live_amfi_public_nav"
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, KeyError):
+        pass
+
+    return (
+        list(BENCHMARK_SERIES[sym]["prices"]),
+        [],
+        sym,
+        BENCHMARK_SERIES[sym]["label"] + " (AMFI Offline Fallback)",
+        "synthetic_benchmark_proxy",
+    )
+
+
+def _series_quant_metrics(prices: List[float]) -> Dict[str, Any]:
+    """Computes total return, CAGR, annualized volatility, Sharpe ratio, and max drawdown on a price array."""
+    if len(prices) < 4:
+        return {"total_return_pct": 0.0, "cagr_pct": 0.0, "ann_vol_pct": 0.0, "sharpe_ratio": 0.0, "max_drawdown_pct": 0.0, "rets": []}
+    rets: List[float] = []
+    peak = prices[0]
+    max_dd = 0.0
+    for i, px in enumerate(prices):
+        if px > peak:
+            peak = px
+        dd = ((peak - px) / peak) * 100.0 if peak > 0 else 0.0
+        if dd > max_dd:
+            max_dd = dd
+        if i > 0 and prices[i - 1] > 0:
+            rets.append((px - prices[i - 1]) / prices[i - 1])
+    total_ret = ((prices[-1] - prices[0]) / prices[0]) * 100.0 if prices[0] > 0 else 0.0
+    yrs = max(len(prices) / 52.0, 0.25)
+    cagr = (((prices[-1] / prices[0]) ** (1.0 / yrs)) - 1.0) * 100.0 if prices[0] > 0 else 0.0
+    ann_vol = stdev(rets) * math.sqrt(52.0) * 100.0 if len(rets) >= 3 else 0.0
+    mean_ann = (sum(rets) / len(rets)) * 52.0 * 100.0 if rets else 0.0
+    sharpe = (mean_ann - 6.5) / ann_vol if ann_vol > 0.05 else 0.0
+    return {
+        "total_return_pct": round(total_ret, 2),
+        "cagr_pct": round(cagr, 2),
+        "ann_vol_pct": round(ann_vol, 2),
+        "sharpe_ratio": round(sharpe, 2),
+        "max_drawdown_pct": round(max_dd, 2),
+        "rets": rets,
+    }
+
+
 def _compute_sharpe(equity_curve: List[Dict[str, Any]], bars_per_year: float = 52.0) -> tuple[float, float]:
     if len(equity_curve) < 4:
         return 0.0, 0.0
@@ -134,33 +206,7 @@ def run_paper_backtest(
     dates: List[str] = []
 
     if amfi_scheme_code:
-        code = re.sub(r"[^0-9]", "", str(amfi_scheme_code))
-        try:
-            cache_k = f"nav:{code}"
-            if cache_k in _MF_CACHE:
-                nav_payload = _MF_CACHE[cache_k]
-            else:
-                req = urllib.request.Request(f"https://api.mfapi.in/mf/{code}", headers={"User-Agent": "ArthaLedger/2.0"})
-                with urllib.request.urlopen(req, timeout=7) as resp:
-                    nav_payload = json.loads(resp.read().decode("utf-8"))
-                _MF_CACHE[cache_k] = nav_payload
-
-            raw_rows = list(reversed((nav_payload.get("data") or [])[:260]))  # ~1 year daily NAVs sampled weekly
-            sampled = raw_rows[::5] if len(raw_rows) > 80 else raw_rows
-            nav_prices = [float(r["nav"]) for r in sampled if float(r.get("nav") or 0) > 0]
-            if len(nav_prices) >= 12:
-                prices = nav_prices
-                dates = [str(r.get("date", "")) for r in sampled[: len(prices)]]
-                meta = nav_payload.get("meta") or {}
-                sym = f"AMFI:{code}"
-                label = str(meta.get("scheme_name") or f"AMFI Mutual Fund {code}")
-                data_source = "live_amfi_public_nav"
-            else:
-                prices = list(BENCHMARK_SERIES[sym]["prices"])
-                label = BENCHMARK_SERIES[sym]["label"]
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError, KeyError):
-            prices = list(BENCHMARK_SERIES[sym]["prices"])
-            label = BENCHMARK_SERIES[sym]["label"] + " (AMFI Offline Fallback)"
+        prices, dates, sym, label, data_source = _load_amfi_or_fallback(amfi_scheme_code, sym)
     elif custom_prices and len(custom_prices) >= 12:
         prices = [float(p) for p in custom_prices if float(p) > 0]
         label = "Custom Historical Close Series"
@@ -267,4 +313,75 @@ def run_paper_backtest(
         "trade_count": len(trades),
         "trades": trades[:18],
         "equity_curve": equity_curve,
+    }
+
+
+def compare_amfi_funds(scheme_a: str = "120716", scheme_b: str = "122639") -> Dict[str, Any]:
+    """Compares two live public AMFI schemes (rebased 100 curve, CAGR, Sharpe, Max Drawdown & return correlation)."""
+    code_a = re.sub(r"[^0-9]", "", str(scheme_a or "")) or "120716"
+    code_b = re.sub(r"[^0-9]", "", str(scheme_b or "")) or "122639"
+
+    px_a, dates_a, sym_a, label_a, src_a = _load_amfi_or_fallback(code_a, "NIFTY50_PROXY")
+    px_b, dates_b, sym_b, label_b, src_b = _load_amfi_or_fallback(code_b, "BANK_INDEX_PROXY")
+
+    n = min(len(px_a), len(px_b))
+    if n < 4:
+        return {"success": False, "error": "Insufficient historical NAV bars to compare these schemes."}
+
+    a_sub = px_a[-n:]
+    b_sub = px_b[-n:]
+    d_sub = (dates_a[-n:] if len(dates_a) >= n else (dates_b[-n:] if len(dates_b) >= n else [f"W{i + 1}" for i in range(n)]))
+
+    m_a = _series_quant_metrics(a_sub)
+    m_b = _series_quant_metrics(b_sub)
+    ra, rb = m_a["rets"], m_b["rets"]
+
+    corr = 0.0
+    if len(ra) >= 4 and len(ra) == len(rb):
+        ma = sum(ra) / len(ra)
+        mb = sum(rb) / len(rb)
+        num = sum((x - ma) * (y - mb) for x, y in zip(ra, rb))
+        den_a = math.sqrt(sum((x - ma) ** 2 for x in ra))
+        den_b = math.sqrt(sum((y - mb) ** 2 for y in rb))
+        if den_a > 0 and den_b > 0:
+            corr = round(max(-1.0, min(1.0, num / (den_a * den_b))), 2)
+
+    if corr >= 0.78:
+        overlap_note = f"HIGH OVERLAP (r={corr:.2f}): Both funds move nearly identically; diversifying with Debt/Gold reduces concentration risk."
+    elif corr >= 0.45:
+        overlap_note = f"MODERATE CORRELATION (r={corr:.2f}): Partial diversification across equity styles."
+    else:
+        overlap_note = f"STRONG DIVERSIFICATION (r={corr:.2f}): Low return correlation helps smooth portfolio drawdowns."
+
+    base_a, base_b = a_sub[0] or 1.0, b_sub[0] or 1.0
+    series = [
+        {
+            "period": i + 1,
+            "date": d_sub[i] if i < len(d_sub) else f"W{i + 1}",
+            "fund_a_indexed": round((a_sub[i] / base_a) * 100.0, 2),
+            "fund_b_indexed": round((b_sub[i] / base_b) * 100.0, 2),
+        }
+        for i in range(n)
+    ]
+
+    return {
+        "success": True,
+        "periods": n,
+        "correlation": corr,
+        "overlap_note": overlap_note,
+        "winner_sharpe": label_a if m_a["sharpe_ratio"] >= m_b["sharpe_ratio"] else label_b,
+        "winner_return": label_a if m_a["total_return_pct"] >= m_b["total_return_pct"] else label_b,
+        "fund_a": {
+            "symbol": sym_a,
+            "label": label_a,
+            "data_source": src_a,
+            **{k: v for k, v in m_a.items() if k != "rets"},
+        },
+        "fund_b": {
+            "symbol": sym_b,
+            "label": label_b,
+            "data_source": src_b,
+            **{k: v for k, v in m_b.items() if k != "rets"},
+        },
+        "series": series,
     }

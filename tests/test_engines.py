@@ -12,14 +12,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from engines.copilot import ask_financial_copilot, compute_financial_health_score
-from engines.fraud_shield import analyze_payment_risk
-from engines.market_backtest import run_paper_backtest, search_amfi_funds, simulate_direct_vs_regular
+from engines.fraud_shield import analyze_payment_risk, decode_qr_from_bytes, generate_sample_qr_png
+from engines.market_backtest import compare_amfi_funds, run_paper_backtest, search_amfi_funds, simulate_direct_vs_regular
 from engines.sme_gst import compute_gst_and_cashflow
 from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
 from engines.tax_wealth import (
     calculate_indian_tax,
     estimate_equity_mf_tax,
     simulate_emi_prepayment,
+    simulate_ltcg_harvesting,
     simulate_sip_wealth,
     solve_goal_sip,
 )
@@ -202,6 +203,47 @@ class TestFinancialEngines(unittest.TestCase):
         stcg = estimate_equity_mf_tax(gain_amount=100000, holding_months=6)
         self.assertEqual(stcg["exempt_amount"], 0.0)
         self.assertEqual(stcg["estimated_tax_with_cess"], 20800.0)
+
+    def test_v4_qr_roundtrip_multibank_csv_compare_funds_and_ltcg_harvesting(self):
+        scam_png = generate_sample_qr_png("scam")
+        self.assertGreater(len(scam_png), 200)
+        decoded_uri = decode_qr_from_bytes(scam_png)
+        self.assertIn("cashback-helpdesk@okexample", decoded_uri)
+        scam_res = analyze_payment_risk(decoded_uri)
+        self.assertEqual(scam_res["verdict"], "HIGH_RISK_SCAM")
+
+        hdfc_tsv = (
+            "Account Statement for 0042XXXXXX\n"
+            "Date\tNarration\tWithdrawal Amt.\tDeposit Amt.\n"
+            "01/11/2026\tNEFT CLIENT SETTLEMENT\t\t45000.00\n"
+            "02/11/2026\tSPOTIFY AUTODEBIT\t199.00\t\n"
+        )
+        parsed = parse_sms_ledger(hdfc_tsv, monthly_budget_target=10000)
+        self.assertEqual(parsed["transaction_count"], 2)
+        self.assertEqual(parsed["total_income"], 45000.0)
+        self.assertEqual(parsed["total_spent"], 199.0)
+
+        hv = simulate_ltcg_harvesting(portfolio_value=900000, unrealized_gain=200000, annual_harvest_limit=125000, years=5, annual_return_pct=12.0)
+        self.assertTrue(hv["success"])
+        self.assertGreater(hv["net_tax_saved"], 0)
+        self.assertLess(hv["tax_with_harvest"], hv["tax_without_harvest"])
+
+        fake_nav = json.dumps({
+            "meta": {"scheme_name": "Sample Equity Fund"},
+            "data": [{"date": f"{d:02d}-01-2026", "nav": str(100 + (20 - d) * 0.9)} for d in range(1, 21)],
+        }).encode("utf-8")
+
+        class _MockResp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_nav
+
+        with patch("engines.market_backtest.urllib.request.urlopen", return_value=_MockResp()):
+            cmp_res = compare_amfi_funds("120716", "122639")
+        self.assertTrue(cmp_res["success"])
+        self.assertEqual(cmp_res["periods"], 20)
+        self.assertIn("correlation", cmp_res)
+        self.assertEqual(cmp_res["series"][0]["fund_a_indexed"], 100.0)
 
 
 if __name__ == "__main__":

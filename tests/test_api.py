@@ -167,6 +167,60 @@ class TestArthaLedgerHttpApi(unittest.TestCase):
         self.assertEqual(c_code, 200)
         self.assertTrue(copilot["success"])
         self.assertIn("FRAUD-AUDIT", copilot["citations"])
+        self.assertIn("harvest", goal_res)
+        self.assertGreaterEqual(goal_res["harvest"]["net_tax_saved"], 0)
+
+    def test_v4_qr_sample_decode_scan_and_amfi_fund_comparison(self):
+        import base64
+        from unittest.mock import patch
+
+        with urllib.request.urlopen(f"{self.base}/api/fraud/sample_qr?kind=scam", timeout=6) as r:
+            self.assertEqual(r.status, 200)
+            self.assertEqual(r.headers.get("Content-Type"), "image/png")
+            png_bytes = r.read()
+        self.assertGreater(len(png_bytes), 200)
+
+        s_code, scan_res = self._post("/api/fraud/vision_scan", {
+            "image_data": "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii"),
+            "image_mime": "image/png",
+        })
+        self.assertEqual(s_code, 200)
+        self.assertTrue(scan_res["success"])
+        self.assertIn("cashback-helpdesk@okexample", scan_res["decoded_payload"])
+        self.assertEqual(scan_res["audit"]["verdict"], "HIGH_RISK_SCAM")
+
+        fake_a = json.dumps({
+            "meta": {"scheme_name": "Fund Alpha Direct"},
+            "data": [{"date": f"{d:02d}-01-2026", "nav": str(100 + (20 - d) * 1.1)} for d in range(1, 21)],
+        }).encode("utf-8")
+        fake_b = json.dumps({
+            "meta": {"scheme_name": "Fund Beta Gold Direct"},
+            "data": [{"date": f"{d:02d}-01-2026", "nav": str(50 + (d % 4) * 0.4 + (20 - d) * 0.3)} for d in range(1, 21)],
+        }).encode("utf-8")
+
+        class _SeqResp:
+            def __init__(self, payload): self._p = payload
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return self._p
+
+        real_urlopen = urllib.request.urlopen
+        mocks = [_SeqResp(fake_a), _SeqResp(fake_b)]
+
+        def _selective_urlopen(req_or_url, *args, **kwargs):
+            u = getattr(req_or_url, "full_url", str(req_or_url))
+            if "api.mfapi.in" in u:
+                return mocks.pop(0)
+            return real_urlopen(req_or_url, *args, **kwargs)
+
+        with patch("engines.market_backtest.urllib.request.urlopen", side_effect=_selective_urlopen):
+            cmp_code, cmp_res = self._post("/api/market/compare", {"scheme_a": "999001", "scheme_b": "999002"})
+        self.assertEqual(cmp_code, 200)
+        self.assertTrue(cmp_res["success"])
+        self.assertEqual(cmp_res["periods"], 20)
+        self.assertEqual(cmp_res["series"][0]["fund_a_indexed"], 100.0)
+        self.assertLessEqual(-1.0, cmp_res["correlation"])
+        self.assertLessEqual(cmp_res["correlation"], 1.0)
 
 
 if __name__ == "__main__":

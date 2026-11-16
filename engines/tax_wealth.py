@@ -263,6 +263,50 @@ def estimate_equity_mf_tax(gain_amount: float, holding_months: int = 18) -> Dict
     }
 
 
+def simulate_ltcg_harvesting(
+    portfolio_value: float = 800000.0,
+    unrealized_gain: float = 180000.0,
+    annual_harvest_limit: float = 125000.0,
+    years: int = 5,
+    annual_return_pct: float = 12.0,
+) -> Dict[str, Any]:
+    """Models annual Sec 112A Rs.1.25L zero-tax LTCG harvesting vs unharvested lump-sum redemption."""
+    port = max(10000.0, float(portfolio_value or 0.0))
+    init_gain = max(0.0, min(port * 0.9, float(unrealized_gain or 0.0)))
+    yrs = max(1, min(20, int(years or 5)))
+    r = max(0.0, min(30.0, float(annual_return_pct or 0.0))) / 100.0
+    limit = max(0.0, float(annual_harvest_limit or 125000.0))
+
+    cost_no_harvest = port - init_gain
+    final_port = port * ((1.0 + r) ** yrs)
+    total_gain_no_harvest = max(0.0, final_port - cost_no_harvest)
+    tax_no_harvest = max(0.0, total_gain_no_harvest - limit) * 0.125 * 1.04
+
+    cur_val = port
+    cur_cost = cost_no_harvest
+    harvested_total = 0.0
+    for _ in range(yrs):
+        gain_now = max(0.0, cur_val - cur_cost)
+        booked = min(limit, gain_now)
+        cur_cost += booked
+        harvested_total += booked
+        cur_val *= (1.0 + r)
+
+    remaining_gain = max(0.0, cur_val - cur_cost)
+    tax_with_harvest = max(0.0, remaining_gain - limit) * 0.125 * 1.04
+    saved = max(0.0, tax_no_harvest - tax_with_harvest)
+
+    return {
+        "success": True,
+        "years": yrs,
+        "projected_portfolio": round(final_port, 2),
+        "tax_without_harvest": round(tax_no_harvest, 2),
+        "tax_with_harvest": round(tax_with_harvest, 2),
+        "net_tax_saved": round(saved, 2),
+        "total_exempt_step_up": round(harvested_total, 2),
+    }
+
+
 def simulate_emi_prepayment(
     principal: float,
     annual_interest_pct: float,

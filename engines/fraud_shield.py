@@ -201,3 +201,59 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
         "anatomy": anatomy,
         "flags": flags,
     }
+
+
+SAMPLE_QR_PAYLOADS: Dict[str, str] = {
+    "scam": "upi://pay?pa=cashback-helpdesk@okexample&pn=Lottery%20Refund&am=19999&mode=02&tn=Enter%20UPI%20PIN%20to%20claim%20refund",
+    "safe": "upi://pay?pa=metro.transit@okaxis&pn=City%20Metro%20Rail&am=120&tn=Monthly%20Smartcard%20Topup",
+}
+
+
+def decode_qr_from_bytes(image_bytes: bytes) -> str:
+    """Decodes a UPI QR code payload locally from raw image bytes using OpenCV when installed."""
+    if not image_bytes:
+        return ""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return ""
+
+    arr = np.frombuffer(image_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return ""
+
+    detector = cv2.QRCodeDetector()
+    text, _, _ = detector.detectAndDecode(img)
+    if text and text.strip():
+        return text.strip()
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    for scale in (2, 3):
+        resized = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+        text, _, _ = detector.detectAndDecode(resized)
+        if text and text.strip():
+            return text.strip()
+        _, thresh = cv2.threshold(resized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        text, _, _ = detector.detectAndDecode(thresh)
+        if text and text.strip():
+            return text.strip()
+    return ""
+
+
+def generate_sample_qr_png(kind: str = "scam") -> bytes:
+    """Generates a valid high-contrast UPI QR code PNG for live demonstration and testing."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return b""
+
+    payload = SAMPLE_QR_PAYLOADS.get(kind, SAMPLE_QR_PAYLOADS["scam"])
+    encoder = cv2.QRCodeEncoder.create()
+    matrix = encoder.encode(payload)
+    scaled = cv2.resize(matrix, (280, 280), interpolation=cv2.INTER_NEAREST)
+    bordered = cv2.copyMakeBorder(scaled, 24, 24, 24, 24, cv2.BORDER_CONSTANT, value=255)
+    ok, buf = cv2.imencode(".png", bordered)
+    return bytes(buf) if ok else b""

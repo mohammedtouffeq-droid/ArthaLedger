@@ -297,11 +297,14 @@
                                     <input id="fraudContextInput" type="text" placeholder="e.g. Caller claiming bank KYC asked to open link or approve request">
                                     <div class="upload-inline mt-8">
                                         <label class="file-btn" for="fraudImageUpload">
-                                            Scan Screenshot with AI Vision
+                                            Scan UPI QR / Payment Screenshot
                                             <input id="fraudImageUpload" type="file" accept="image/png,image/jpeg,image/webp">
                                         </label>
-                                        <span class="muted-text" id="fraudImageLabel">Optional PNG/JPG payment screenshot</span>
+                                        <button type="button" class="btn btn-secondary" id="btnScanDemoScamQr">Scan Demo Scam QR</button>
+                                        <button type="button" class="btn btn-outline" id="btnScanDemoSafeQr">Scan Demo Safe QR</button>
+                                        <span class="muted-text" id="fraudImageLabel">Decodes UPI QR codes (OpenCV + BarcodeDetector) &amp; payment screenshots (Gemini Vision)</span>
                                     </div>
+                                    <div class="callout-box hidden mt-8" id="fraudQrScanBanner"></div>
                                 </div>
 
                                 <div class="panel">
@@ -425,6 +428,7 @@
                                         </div>
                                     </div>
                                     <div class="callout-box" id="goalAndCgSummary">Goal &amp; Capital Gains readout calculates here.</div>
+                                    <div class="callout-box hidden" id="harvestSummaryBox"></div>
                                 </div>
 
                                 <div class="panel">
@@ -473,8 +477,12 @@
                                     <select id="amfiSchemeSelect" aria-label="Select AMFI Mutual Fund Scheme">
                                         <option value="120716" selected>UTI Nifty 50 Index Fund - Direct Growth (Live AMFI)</option>
                                         <option value="122639">Parag Parikh Flexi Cap Fund - Direct Growth (Live AMFI)</option>
-                                        <option value="118989">HDFC Mid-Cap Opportunities - Direct Growth (Live AMFI)</option>
+                                        <option value="118989">HDFC Mid Cap Fund - Direct Growth (Live AMFI)</option>
                                         <option value="125497">SBI Small Cap Fund - Direct Growth (Live AMFI)</option>
+                                        <option value="120503">Axis ELSS Tax Saver Fund - Direct Growth (Live AMFI)</option>
+                                        <option value="119091">HDFC Liquid Fund - Direct Growth (Live AMFI)</option>
+                                        <option value="120684">ICICI Pru Nifty Next 50 Index - Direct Growth (Live AMFI)</option>
+                                        <option value="119788">SBI Gold Fund - Direct Growth (Live AMFI)</option>
                                         <option value="">-- Fallback: Built-in Historical Index Proxy --</option>
                                     </select>
                                 </div>
@@ -526,6 +534,50 @@
                                         </thead>
                                         <tbody id="backtestTradesBody"></tbody>
                                     </table>
+                                </div>
+                            </div>
+
+                            <div class="panel mt-16 scroll-reveal">
+                                <div class="panel-header">
+                                    <div>
+                                        <h2>AMFI Fund-vs-Fund Head-to-Head &amp; Overlap Correlation</h2>
+                                        <p>Normalize any two live Indian AMFI schemes to Base 100, compare Sharpe &amp; Max Drawdown, and measure portfolio overlap correlation (r).</p>
+                                    </div>
+                                    <button type="button" class="btn btn-primary" id="btnCompareFunds">Compare Live Funds</button>
+                                </div>
+                                <div class="form-grid-2">
+                                    <div class="form-row">
+                                        <label for="cmpFundASelect">Fund A (Primary Benchmark)</label>
+                                        <select id="cmpFundASelect">
+                                            <option value="120716" selected>UTI Nifty 50 Index Fund - Direct (120716)</option>
+                                            <option value="122639">Parag Parikh Flexi Cap Fund - Direct (122639)</option>
+                                            <option value="118989">HDFC Mid Cap Fund - Direct (118989)</option>
+                                            <option value="125497">SBI Small Cap Fund - Direct (125497)</option>
+                                            <option value="120503">Axis ELSS Tax Saver - Direct (120503)</option>
+                                            <option value="119091">HDFC Liquid Fund - Direct (119091)</option>
+                                            <option value="120684">ICICI Pru Nifty Next 50 Index - Direct (120684)</option>
+                                            <option value="119788">SBI Gold Fund - Direct (119788)</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <label for="cmpFundBSelect">Fund B (Challenger / Diversifier)</label>
+                                        <select id="cmpFundBSelect">
+                                            <option value="120716">UTI Nifty 50 Index Fund - Direct (120716)</option>
+                                            <option value="122639">Parag Parikh Flexi Cap Fund - Direct (122639)</option>
+                                            <option value="118989">HDFC Mid Cap Fund - Direct (118989)</option>
+                                            <option value="125497">SBI Small Cap Fund - Direct (125497)</option>
+                                            <option value="120503">Axis ELSS Tax Saver - Direct (120503)</option>
+                                            <option value="119091">HDFC Liquid Fund - Direct (119091)</option>
+                                            <option value="120684">ICICI Pru Nifty Next 50 Index - Direct (120684)</option>
+                                            <option value="119788" selected>SBI Gold Fund - Direct (119788)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="split-metrics mt-8" id="compareMetricsRow"></div>
+                                <div class="callout-box" id="compareOverlapBanner">Click Compare Live Funds to run correlation and risk-adjusted Sharpe comparison.</div>
+                                <div class="chart-wrap">
+                                    <canvas id="compareChart" class="chart-canvas" height="220"></canvas>
+                                    <div class="chart-tooltip hidden" id="compareChartTip"></div>
                                 </div>
                             </div>
                         </section>

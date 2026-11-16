@@ -7,7 +7,18 @@
             { name: 'Hardware Prototype Unit', qty: 2, unit_price: 15000, gst_rate: 18 },
             { name: 'Cloud Calibration Service', qty: 1, unit_price: 8500, gst_rate: 18 },
         ],
-        telemetry: { ledger: null, fraud: null, tax: null, sip: null, emi: null, backtest: null, sme: null },
+        telemetry: {
+            ledger: null,
+            fraud: null,
+            tax: null,
+            sip: null,
+            emi: null,
+            backtest: null,
+            comparison: null,
+            harvest: null,
+            qr_scan: null,
+            sme: null,
+        },
         aiSettings: { provider: 'auto', model: 'gemini-3.5-flash-lite', apiKey: '' },
         copilotHistory: [],
         attachedImageData: '',
@@ -249,8 +260,14 @@
         ctx.fillStyle = colorA;
         ctx.fillText(labelA, padL, 16);
         if (keyB && labelB) {
+            const labelAXEnd = padL + Math.ceil(ctx.measureText(labelA).width) + 22;
+            const legendBX = Math.max(padL + 150, labelAXEnd);
             ctx.fillStyle = colorB;
-            ctx.fillText(labelB, padL + 150, 16);
+            if (legendBX + ctx.measureText(labelB).width <= width - 8) {
+                ctx.fillText(labelB, legendBX, 16);
+            } else {
+                ctx.fillText(labelB.slice(0, 14), legendBX, 16);
+            }
         }
         if (tip && formatTip) attachLineHover(canvas, tip, series, xForIdx, formatTip);
     }
@@ -269,13 +286,25 @@
                 green, amber,
                 (p) => `Yr ${p.year}: Nom ${fmtInr(p.nominal_value)} | Real ${fmtInr(p.real_value_today_inr)}`
             );
-        } else if (tabName === 'market' && STATE.telemetry.backtest) {
-            drawDualLineChart(
-                'backtestChart', 'backtestChartTip', STATE.telemetry.backtest.equity_curve,
-                'strategy_equity', 'buy_hold_equity', 'Paper Strategy', 'Benchmark Hold',
-                green, blue,
-                (p) => `${p.date}: Strat ${fmtInr(p.strategy_equity)} | B&H ${fmtInr(p.buy_hold_equity)} | DD -${p.drawdown_pct}%`
-            );
+        } else if (tabName === 'market') {
+            if (STATE.telemetry.backtest) {
+                drawDualLineChart(
+                    'backtestChart', 'backtestChartTip', STATE.telemetry.backtest.equity_curve,
+                    'strategy_equity', 'buy_hold_equity', 'Paper Strategy', 'Benchmark Hold',
+                    green, blue,
+                    (p) => `${p.date}: Strat ${fmtInr(p.strategy_equity)} | B&H ${fmtInr(p.buy_hold_equity)} | DD -${p.drawdown_pct}%`
+                );
+            }
+            if (STATE.telemetry.comparison && STATE.telemetry.comparison.series) {
+                drawDualLineChart(
+                    'compareChart', 'compareChartTip', STATE.telemetry.comparison.series,
+                    'fund_a_indexed', 'fund_b_indexed',
+                    (STATE.telemetry.comparison.fund_a.label || 'Fund A').slice(0, 22),
+                    (STATE.telemetry.comparison.fund_b.label || 'Fund B').slice(0, 22),
+                    green, amber,
+                    (p) => `${p.date}: Fund A ${p.fund_a_indexed} | Fund B ${p.fund_b_indexed} (Base 100)`
+                );
+            }
         } else if (tabName === 'sme' && STATE.telemetry.sme) {
             drawDualLineChart(
                 'smeChart', 'smeChartTip', STATE.telemetry.sme.projection_90d,
@@ -372,10 +401,7 @@
         refreshHealthScore();
     }
 
-    async function runFraudAudit() {
-        const payloadText = document.getElementById('fraudPayloadInput').value;
-        const contextText = document.getElementById('fraudContextInput').value;
-        const data = await postJson('/api/fraud/audit', { payload_text: payloadText, claimed_context: contextText });
+    function renderFraudResult(data) {
         if (!data || !data.success) return;
         STATE.telemetry.fraud = data;
 
@@ -421,6 +447,76 @@
             });
         }
         refreshHealthScore();
+    }
+
+    async function runFraudAudit() {
+        const payloadText = document.getElementById('fraudPayloadInput').value;
+        const contextText = document.getElementById('fraudContextInput').value;
+        const data = await postJson('/api/fraud/audit', { payload_text: payloadText, claimed_context: contextText });
+        if (data && data.success) renderFraudResult(data);
+    }
+
+    async function tryDecodeQrClientSide(dataUrl) {
+        if (!('BarcodeDetector' in window)) return '';
+        try {
+            const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+            const img = new Image();
+            img.src = dataUrl;
+            await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+            const codes = await detector.detect(img);
+            return (codes && codes[0] && codes[0].rawValue) ? String(codes[0].rawValue).trim() : '';
+        } catch (_) {
+            return '';
+        }
+    }
+
+    async function scanFraudImagePayload(dataUrl, mime, labelName) {
+        STATE.attachedImageData = dataUrl;
+        STATE.attachedImageMime = mime || 'image/png';
+        document.getElementById('fraudImageLabel').textContent = `Scanning: ${labelName}...`;
+        document.getElementById('copilotImageStatus').textContent = labelName;
+        document.getElementById('btnClearImage').classList.remove('hidden');
+
+        const browserQr = await tryDecodeQrClientSide(dataUrl);
+        const res = await postJson(
+            '/api/fraud/vision_scan',
+            {
+                image_data: dataUrl,
+                image_mime: mime || 'image/png',
+                browser_qr_text: browserQr,
+                provider: STATE.aiSettings.provider,
+                model: STATE.aiSettings.model,
+            },
+            STATE.aiSettings.apiKey ? { 'X-User-AI-Key': STATE.aiSettings.apiKey } : {}
+        );
+        if (!res || !res.success) {
+            document.getElementById('fraudImageLabel').textContent = `Scan incomplete: ${labelName}`;
+            return;
+        }
+        STATE.telemetry.qr_scan = { method: res.detection_method, decoded_payload: res.decoded_payload };
+        document.getElementById('fraudPayloadInput').value = res.decoded_payload;
+        document.getElementById('fraudImageLabel').textContent = `Decoded (${res.detection_method}): ${labelName}`;
+        const banner = document.getElementById('fraudQrScanBanner');
+        banner.textContent = `Decoded via ${res.detection_method}: ${res.decoded_payload}`;
+        banner.classList.remove('hidden');
+        if (res.audit) renderFraudResult(res.audit);
+        showToast(`QR / Image decoded (${res.audit ? res.audit.verdict : 'OK'}).`, false);
+    }
+
+    async function scanDemoQrSample(kind) {
+        try {
+            const resp = await fetch(`/api/fraud/sample_qr?kind=${encodeURIComponent(kind)}`);
+            if (!resp.ok) {
+                showToast('Could not generate sample QR PNG.', true);
+                return;
+            }
+            const blob = await resp.blob();
+            const reader = new FileReader();
+            reader.onload = () => scanFraudImagePayload(String(reader.result || ''), 'image/png', `sample_${kind}_upi_qr.png`);
+            reader.readAsDataURL(blob);
+        } catch (_) {
+            showToast('Failed to fetch sample QR image.', true);
+        }
     }
 
     async function runTaxAndWealth() {
@@ -507,6 +603,14 @@
             const cg = goalData.capital_gains_tax;
             document.getElementById('goalAndCgSummary').textContent =
                 `Goal Planner: Today Rs.${Math.round(g.target_today_inr).toLocaleString('en-IN')} inflates to ${fmtInr(g.inflation_adjusted_target)} in ${g.years}Y -> Required SIP: ${fmtInr(g.required_monthly_sip)}/mo. Equity Tax (${cg.regime_label}): Est Tax ${fmtInr(cg.estimated_tax_with_cess)}, Post-Tax Profit ${fmtInr(cg.post_tax_gain)}.`;
+            const hv = goalData.harvest;
+            const hvBox = document.getElementById('harvestSummaryBox');
+            if (hv && hvBox) {
+                STATE.telemetry.harvest = hv;
+                hvBox.textContent =
+                    `Sec 112A Tax-Harvesting (${hv.years}Y Plan): Booking Rs.1,25,000 exempt LTCG annually saves ${fmtInr(hv.net_tax_saved)} tax (Tax drops from ${fmtInr(hv.tax_without_harvest)} to ${fmtInr(hv.tax_with_harvest)} across ${fmtInr(hv.total_exempt_step_up)} basis step-up).`;
+                hvBox.classList.remove('hidden');
+            }
         }
 
         redrawTabCharts('tax');
@@ -589,6 +693,38 @@
             tb.appendChild(tr);
         });
         refreshHealthScore();
+    }
+
+    let compareReqSeq = 0;
+    async function runFundComparison() {
+        const reqId = ++compareReqSeq;
+        const btn = document.getElementById('btnCompareFunds');
+        const schemeA = document.getElementById('cmpFundASelect').value;
+        const schemeB = document.getElementById('cmpFundBSelect').value;
+        if (btn) { btn.disabled = true; btn.textContent = 'Comparing...'; }
+        const data = await postJson('/api/market/compare', { scheme_a: schemeA, scheme_b: schemeB });
+        if (btn) { btn.disabled = false; btn.textContent = 'Compare Live Funds'; }
+        if (reqId !== compareReqSeq || !data || !data.success) return;
+        STATE.telemetry.comparison = data;
+
+        const row = document.getElementById('compareMetricsRow');
+        row.replaceChildren();
+        [
+            { l: 'FUND A RETURN / SHARPE', v: `${data.fund_a.total_return_pct}% | S:${data.fund_a.sharpe_ratio}` },
+            { l: 'FUND B RETURN / SHARPE', v: `${data.fund_b.total_return_pct}% | S:${data.fund_b.sharpe_ratio}` },
+            { l: 'MAX DD (A vs B)', v: `-${data.fund_a.max_drawdown_pct}% vs -${data.fund_b.max_drawdown_pct}%` },
+            { l: 'CORRELATION (r)', v: String(data.correlation) },
+        ].forEach((m) => {
+            const d = document.createElement('div');
+            d.className = 'mini-stat';
+            const l = document.createElement('div'); l.className = 'mini-stat-label'; l.textContent = m.l;
+            const v = document.createElement('div'); v.className = 'mini-stat-val'; v.textContent = m.v;
+            d.append(l, v);
+            row.appendChild(d);
+        });
+        document.getElementById('compareOverlapBanner').textContent =
+            `${data.overlap_note} Risk-Adjusted Sharpe Leader: ${data.winner_sharpe}.`;
+        redrawTabCharts('market');
     }
 
     function renderSmeItemRows() {
@@ -849,7 +985,7 @@
         STATE.smeItems = smeDefaults.items.map((x) => Object.assign({}, x));
         renderSmeItemRows();
 
-        await Promise.all([runLedgerAnalysis(), runFraudAudit(), runTaxAndWealth(), runBacktest(), runSmeAnalysis()]);
+        await Promise.all([runLedgerAnalysis(), runFraudAudit(), runTaxAndWealth(), runBacktest(), runFundComparison(), runSmeAnalysis()]);
         showToast(`Loaded scenario: ${p.name}`, false);
     }
 
@@ -1013,16 +1149,11 @@
             const f = ev.target.files && ev.target.files[0];
             if (!f) return;
             const rd = new FileReader();
-            rd.onload = async () => {
-                STATE.attachedImageData = String(rd.result || '');
-                STATE.attachedImageMime = f.type || 'image/png';
-                document.getElementById('fraudImageLabel').textContent = `Uploaded: ${f.name}`;
-                document.getElementById('copilotImageStatus').textContent = f.name;
-                document.getElementById('btnClearImage').classList.remove('hidden');
-                await askCopilot('Inspect this uploaded payment/QR screenshot for phishing, fake refund collect requests, or suspicious urgency cues.');
-            };
+            rd.onload = () => scanFraudImagePayload(String(rd.result || ''), f.type || 'image/png', f.name);
             rd.readAsDataURL(f);
         });
+        document.getElementById('btnScanDemoScamQr').addEventListener('click', () => scanDemoQrSample('scam'));
+        document.getElementById('btnScanDemoSafeQr').addEventListener('click', () => scanDemoQrSample('safe'));
 
         const taxRange = document.getElementById('taxGrossRange');
         const taxNum = document.getElementById('taxGrossInput');
@@ -1046,6 +1177,9 @@
         document.getElementById('btnSearchAmfi').addEventListener('click', searchAmfiFunds);
         document.getElementById('amfiSchemeSelect').addEventListener('change', runBacktest);
         document.getElementById('btnRunBacktest').addEventListener('click', runBacktest);
+        document.getElementById('btnCompareFunds').addEventListener('click', runFundComparison);
+        document.getElementById('cmpFundASelect').addEventListener('change', runFundComparison);
+        document.getElementById('cmpFundBSelect').addEventListener('change', runFundComparison);
 
         document.getElementById('btnAddSmeItem').addEventListener('click', () => {
             STATE.smeItems.push({ name: 'New Line Item', qty: 1, unit_price: 2500, gst_rate: 18 });

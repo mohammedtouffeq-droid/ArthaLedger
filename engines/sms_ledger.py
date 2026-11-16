@@ -54,17 +54,31 @@ def _parse_amount_num(raw: Any) -> float:
 
 
 def csv_statement_to_lines(csv_text: str) -> str:
-    """Converts common Indian bank/UPI CSV exports (Date, Narration/Description, Debit, Credit) into normalized lines."""
-    reader = csv.DictReader(io.StringIO(str(csv_text or "").strip()))
+    """Converts common Indian bank/UPI CSV or TSV exports (HDFC, SBI, ICICI, PhonePe) into normalized lines."""
+    raw = str(csv_text or "").lstrip("\ufeff").strip()
+    if not raw:
+        return ""
+    all_lines = [ln for ln in raw.splitlines() if ln.strip()]
+    header_idx = 0
+    for idx, ln in enumerate(all_lines[:10]):
+        low = ln.lower()
+        if any(k in low for k in ("date", "narration", "description", "particular", "remarks")) and any(c in ln for c in (",", "\t", ";", "|")):
+            header_idx = idx
+            break
+    table_text = "\n".join(all_lines[header_idx:])
+    sample_line = all_lines[header_idx]
+    delim = "\t" if "\t" in sample_line else (";" if sample_line.count(";") >= 2 else ("|" if sample_line.count("|") >= 2 else ","))
+
+    reader = csv.DictReader(io.StringIO(table_text), delimiter=delim)
     if not reader.fieldnames:
         return ""
     fields = {f.lower().strip(): f for f in reader.fieldnames if f}
     date_col = next((fields[k] for k in fields if "date" in k), None)
-    desc_col = next((fields[k] for k in fields if any(w in k for w in ("narration", "desc", "remark", "merchant", "particular", "title"))), None)
+    desc_col = next((fields[k] for k in fields if any(w in k for w in ("narration", "desc", "remark", "merchant", "particular", "title", "detail"))), None)
     debit_col = next((fields[k] for k in fields if ("debit" in k or "withdraw" in k or re.search(r"\bdr\b", k))), None)
     credit_col = next((fields[k] for k in fields if ("credit" in k or "deposit" in k or re.search(r"\bcr\b", k))), None)
     amt_col = next((fields[k] for k in fields if "amount" in k), None)
-    type_col = next((fields[k] for k in fields if "type" in k), None)
+    type_col = next((fields[k] for k in fields if any(w in k for w in ("type", "cr/dr", "dr/cr", "mode"))), None)
 
     out_lines: List[str] = []
     for row in reader:
@@ -77,24 +91,25 @@ def csv_statement_to_lines(csv_text: str) -> str:
         elif cr > 0:
             out_lines.append(f"Credited Rs.{cr:.2f} towards {desc} on {dt}.")
         elif amt_col:
-            amt = _parse_amount_num(row.get(amt_col, 0))
+            raw_amt_cell = str(row.get(amt_col, "")).strip()
+            amt = _parse_amount_num(raw_amt_cell)
             if amt > 0:
-                t_val = str(row.get(type_col, "") if type_col else "").lower()
-                verb = "Credited" if ("cr" in t_val or "in" in t_val) else "Debited"
-                prep = "towards" if verb == "Credited" else "via UPI to"
+                t_val = (str(row.get(type_col, "") if type_col else "") + " " + raw_amt_cell).lower()
+                is_cr = bool(re.search(r"\b(cr|credit|in)\b", t_val))
+                verb = "Credited" if is_cr else "Debited"
+                prep = "towards" if is_cr else "via UPI to"
                 out_lines.append(f"{verb} Rs.{amt:.2f} {prep} {desc} on {dt}.")
     return "\n".join(out_lines)
 
 
 def parse_sms_ledger(raw_text: str, monthly_budget_target: float = 0.0) -> Dict[str, Any]:
     """Parses raw UPI/bank SMS lines or CSV statements into categorized transactions with citations."""
-    text = str(raw_text or "").strip()
-    if "," in text.splitlines()[0] if text else False:
-        header_low = text.splitlines()[0].lower()
-        if any(k in header_low for k in ("date", "amount", "debit", "narration", "description")):
-            converted = csv_statement_to_lines(text)
-            if converted:
-                text = converted
+    text = str(raw_text or "").lstrip("\ufeff").strip()
+    first_lines = "\n".join(text.splitlines()[:10]).lower()
+    if any(k in first_lines for k in ("date", "amount", "debit", "narration", "description", "withdrawal", "deposit")) and any(c in first_lines for c in (",", "\t", ";", "|")):
+        converted = csv_statement_to_lines(text)
+        if converted:
+            text = converted
 
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     transactions: List[Dict[str, Any]] = []
