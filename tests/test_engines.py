@@ -1,6 +1,7 @@
 """Unit tests for all deterministic Indian finance computation engines in ArthaLedger."""
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -10,11 +11,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engines.copilot import ask_financial_copilot
+from engines.copilot import ask_financial_copilot, compute_financial_health_score
 from engines.fraud_shield import analyze_payment_risk
-from engines.market_backtest import run_paper_backtest
+from engines.market_backtest import run_paper_backtest, search_amfi_funds, simulate_direct_vs_regular
 from engines.sme_gst import compute_gst_and_cashflow
-from engines.sms_ledger import export_ledger_csv, parse_sms_ledger
+from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
 from engines.tax_wealth import calculate_indian_tax, simulate_emi_prepayment, simulate_sip_wealth
 
 
@@ -120,6 +121,49 @@ class TestFinancialEngines(unittest.TestCase):
         self.assertEqual(res["provider_used"], "deterministic")
         self.assertIn("TAX-115BAC", res["citations"])
         self.assertIn("Rs.0", res["reply"])
+
+    def test_v2_csv_breakeven_amfi_direct_drag_and_health_score(self):
+        csv_raw = "Date,Description,Debit,Credit\n01-Nov-2026,Allowance,,15000\n02-Nov-2026,Spotify,199,\n"
+        lines = csv_statement_to_lines(csv_raw)
+        parsed = parse_sms_ledger(lines, monthly_budget_target=10000)
+        self.assertEqual(parsed["total_income"], 15000.0)
+        self.assertEqual(parsed["total_spent"], 199.0)
+        self.assertEqual(parsed["subscription_annual_runrate"], 2388.0)
+
+        tax = calculate_indian_tax(gross_income=1600000, is_salaried=True)
+        self.assertGreater(tax["breakeven_deduction"], 200000.0)
+        self.assertGreater(tax["monthly_take_home"], 100000.0)
+
+        drag = simulate_direct_vs_regular(monthly_sip=15000, years=15)
+        self.assertGreater(drag["commission_leakage"], 400000.0)
+
+        mf = search_amfi_funds("")
+        self.assertTrue(mf["success"])
+        self.assertGreaterEqual(len(mf["funds"]), 4)
+
+        scam = analyze_payment_risk("upi://pay?pa=kyc-helpdesk@okexample&am=9999&tn=Enter UPI PIN")
+        self.assertTrue(any(a["field"] == "PIN-For-Receipt Trap" and a["value"] == "DETECTED" for a in scam["anatomy"]))
+
+        health = compute_financial_health_score({"ledger": parsed, "fraud": scam, "tax": tax, "backtest": {"sharpe_ratio": 1.1}})
+        self.assertGreaterEqual(health["score"], 60)
+        self.assertLessEqual(health["score"], 100)
+
+        # Verify AMFI scheme backtest parsing cleanly with mocked AMFI payload
+        sample_amfi = json.dumps({
+            "meta": {"scheme_name": "Test Nifty 50 Index Direct"},
+            "data": [{"date": f"{d:02d}-01-2026", "nav": str(100 + (20 - d) * 0.8)} for d in range(1, 21)],
+        }).encode("utf-8")
+
+        class _FakeResp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return sample_amfi
+
+        with patch("engines.market_backtest.urllib.request.urlopen", return_value=_FakeResp()):
+            amfi_bt = run_paper_backtest(amfi_scheme_code="999120", strategy="sma_crossover", initial_capital=100000)
+        self.assertEqual(amfi_bt["data_source"], "live_amfi_public_nav")
+        self.assertEqual(amfi_bt["periods"], 20)
+        self.assertGreater(amfi_bt["final_equity"], 0)
 
 
 if __name__ == "__main__":

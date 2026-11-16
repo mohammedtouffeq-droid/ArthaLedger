@@ -1,75 +1,67 @@
 # ArthaLedger
 
-**Evidence-Cited Personal & Small-Business Financial Intelligence Terminal for India**  
+**Evidence-Cited Indian Personal & Small-Business Financial Intelligence Workbench**  
 Built for **Arthaton 2026** (`AI for Finance`).
 
 > **Demo Video (YouTube):** *[Upload under-5-minute working walkthrough to YouTube and paste Public/Unlisted URL here before submitting]*
 
 ---
 
-## 1. What ArthaLedger Does
+## 1. What Makes ArthaLedger Different
 
-Most financial AI assistants guess arithmetic inside an LLM and fabricate advice without auditability. **ArthaLedger** flips that model with an **evidence-first, deterministic computation core**:
+Most AI finance wrappers send numbers to an LLM and hope arithmetic comes back right. **ArthaLedger** separates **verified computation** from **cited explanation & multimodal inspection**:
 
-1. **UPI & Bank SMS Ledger (`engines/sms_ledger.py`):**  
-   Parses Indian bank/UPI debit and credit alerts, categorizes spends across Indian merchants (Swiggy, Blinkit, Jio, Metro, utilities, rent), detects stealth recurring subscriptions and statistical outlier spends (`>= 2.8x` median), computes monthly burn rate, and exports RFC-4180 CSV statements with `[TXN-XX]` citation IDs.
+1. **UPI, Bank SMS & CSV Ledger (`engines/sms_ledger.py`):**
+   - Imports bank-statement CSV files (`Date, Description, Debit, Credit`) or UPI SMS alerts, supports live search/filter + quick inline transaction entry, flags statistical outlier debits (`>= 2.8x` median) and recurring subscriptions with annualized cost, and exports RFC-4180 CSV statements.
 
-2. **UPI Collect & Phishing Shield (`engines/fraud_shield.py`):**  
-   Inspects suspicious payment SMS messages, `upi://pay?...` deep links, obfuscated URL shorteners (`bit.ly`, `tinyurl.com`), lookalike bank domains, remote-access lures (`AnyDesk`/`TeamViewer`), and PIN-for-refund traps — returning an explainable `0–100` risk score with `[FRAUD-...]` rule citations. Supports multimodal receipt/screenshot inspection when connected to Gemini or BharatCode Vision models.
+2. **UPI Collect, SMS & Screenshot Forensics (`engines/fraud_shield.py`):**
+   - Breaks any payment link or `upi://pay?...` collect URI into a structural **Attack Anatomy** grid (Channel, VPA handle, Payee Display Name, Requested Amount, Spoofed/Shortener Domain, PIN-For-Receipt Trap) and emits rule-cited risk weights (`0–100`), plus direct screenshot upload for multimodal AI inspection.
 
-3. **Indian Income Tax Regime & Wealth Optimizer (`engines/tax_wealth.py`):**  
-   - Compares **Old Regime vs. New Regime (Section 115BAC, Union Budget 2025 slabs for FY 2025–26 / FY 2026–27)** including the Rs.75,000 salaried Standard Deduction, Section 87A rebate up to Rs.12,00,000 taxable income (Rs.12,75,000 salaried tax-free), marginal relief above Rs.12L, Sections 80C / 80D / 80CCD(1B) / HRA, and 4% Health & Education Cess.
-   - Simulates step-up monthly **SIP compounding vs. inflation-adjusted purchasing power** and reducing-balance **Loan/EMI prepayment savings**.
+3. **Budget 2025 Indian Income Tax, Crossover Solver & SIP/EMI Optimizer (`engines/tax_wealth.py`):**
+   - Exact **Union Budget 2025 Section 115BAC (FY 2025–26 / FY 2026–27)** progressive slabs, Rs.75,000 salaried Standard Deduction, Section 87A rebate up to Rs.12,00,000 taxable income (Rs.12.75L salaried tax-free), marginal relief above Rs.12L, 4% Cess, **Algebraic Deduction Breakeven Point**, monthly post-tax take-home, step-up SIP nominal vs. real purchasing power curve, and Loan/EMI prepayment amortization.
 
-4. **Historical & Synthetic NSE Paper Backtester (`engines/market_backtest.py`):**  
-   Runs strictly non-advisory historical/synthetic index proxies (`NIFTY50_PROXY`, `IT_LARGE_CAP`, `BANK_INDEX_PROXY`) with SMA Crossover and Drawdown Dip Accumulation strategies (10 bps slippage model), computing Total Return %, CAGR %, Max Drawdown %, and Win Rate vs. Benchmark Buy-and-Hold.
+4. **Live Public AMFI Mutual Funds & Historical Paper Backtester (`engines/market_backtest.py`):**
+   - Queries official public AMFI Indian Mutual Fund schemes via `https://api.mfapi.in` (with offline historical benchmark fallback), backtests SMA Crossover and Drawdown Dip Accumulation strategies (non-advisory, zero live trading), computes **Sharpe Ratio, Annualized Volatility %, CAGR, Max Drawdown %**, and quantifies **Direct vs. Regular Plan 1% Trail Commission Leakage**.
 
-5. **SME GST Invoice & 90-Day Cash Runway (`engines/sme_gst.py`):**  
-   Computes intra-state (`CGST + SGST`) vs. inter-state (`IGST`) line items, offsets Input Tax Credit (`ITC`), and models 90-day Base vs. 35%-Delayed-Receivables cashflow stress.
+5. **Interactive SME GST Invoice & 90-Day Working Capital Stress (`engines/sme_gst.py`):**
+   - Dynamic multi-line invoice builder (`0/5/12/18/28%` slabs), Intra-state (`CGST + SGST`) vs. Inter-state (`IGST`), Input Tax Credit offset, and 90-day Base vs. 35%-Delayed-Receivables cash runway simulation.
 
-6. **Citation-Grounded AI Financial Copilot (`engines/copilot.py`):**  
-   Synthesizes insights across all active modules using verifiable citation tags (`[TXN-04]`, `[TAX-115BAC]`, `[FRAUD-LURE-01]`, `[BACKTEST-PAPER]`, `[GST-ITC-SET]`). Supports uploaded receipt/UPI screenshots via multimodal LLMs and includes a built-in deterministic fallback engine for zero-key reproducibility.
+6. **Perplexity-Style Grounded AI Copilot (`engines/copilot.py`):**
+   - Computes a **5-Pillar Financial Health Index (`0–100`)**, anchors every insight to interactive citation badges (`[TXN-04]`, `[TAX-115BAC]`, `[FRAUD-LURE-01]`, `[MF-DIRECT-DRAG]`, `[GST-ITC-SET]`) that jump directly to the referenced transaction/module, and emits 1-click **"Apply What-If Simulation"** actions. Supports **Google Gemini** (`gemini-2.5-flash`), **BharatCode API** (`glm-5.3-flash` vision + text), and an offline deterministic grounded engine.
 
 ---
 
-## 2. AI Models, APIs & Open-Source Libraries Used
+## 2. AI Models, APIs & Data Sources Used
 
-| Component | Technology / Model | Usage |
+| Component | Model / Endpoint | Role |
 |---|---|---|
-| **Google Gemini API** | `gemini-2.5-flash` / `gemini-2.0-flash` | Natural-language financial reasoning and multimodal receipt/payment screenshot analysis |
-| **BharatCode Model API** | `glm-5.3-flash` (vision + text), `deepseek-chat` | OpenAI-compatible multimodal screenshot/text audit via `https://bharatcode.ai/api/model/v1/chat/completions` |
-| **Deterministic Engine Core** | Built-in `artha-deterministic-citation-v1` | Zero-key offline grounded fallback & verified arithmetic across all 5 modules |
-| **Backend Runtime** | Python 3.12 Standard Library (`http.server`, `json`, `csv`, `urllib`, `pathlib`, `re`, `statistics`) | Zero external runtime package dependencies; Vercel serverless adapter (`api/index.py`) |
-| **Frontend UI & Charts** | Vanilla HTML5, CSS3, ES6 JavaScript, Canvas 2D | Responsive desktop/mobile ledger interface with strict `script-src 'self'` CSP compliance |
+| **Google Gemini API** | `gemini-2.5-flash` / `gemini-2.0-flash` | Financial synthesis & multimodal receipt/payment screenshot inspection |
+| **BharatCode Model API** | `glm-5.3-flash`, `deepseek-chat` | OpenAI-compatible multimodal & text auditing via `https://bharatcode.ai/api/model/v1/chat/completions` |
+| **Public Market Feed** | AMFI India (`https://api.mfapi.in`) | Real public historical Mutual Fund NAVs for non-advisory paper backtesting |
+| **Deterministic Grounding** | Built-in `artha-deterministic-citation-v2` | Reproducible offline financial reasoning & 5-pillar Financial Health Index |
+| **Runtime & Deployment** | Python 3.12 Standard Library + Vercel WSGI (`api/index.py`) | Zero external pip dependencies for core app; `script-src 'self'` strict CSP |
 
 ---
 
-## 3. Compliance & Safety Architecture
+## 3. Compliance & Security
 
-- **Synthetic Data Only:** All bundled personas (`sample_data.py`) use synthetic transactions, `.example` links, and non-live VPA placeholders (`@okexample`).
-- **Zero Secrets in Repository:** Never commit API keys, bank details, PANs, or real UPI IDs. Keys may be supplied via local `.env` environment variables (`GEMINI_API_KEY` or `BHARATCODE_API_KEY`) or entered at runtime inside the browser UI's `sessionStorage` modal.
-- **No Real Trading:** The Market Backtester runs exclusively on historical/synthetic proxy data and explicitly blocks live brokerage connectivity.
-- **Hardened HTTP Server:** Enforces `Content-Security-Policy: script-src 'self'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Path.relative_to` traversal protection, and bounded `6 MB` payload ceilings.
+- **Synthetic / Public Data Only:** All default scenarios use synthetic alerts and `.example` / `@okexample` placeholders. Never place real PAN, bank details, UPI PINs, or broker keys in code.
+- **No Real Trades:** Market simulation runs strictly on public AMFI NAVs or synthetic benchmark proxies.
+- **Zero Repo Secrets:** API keys can be loaded from gitignored `.env` (`GEMINI_API_KEY` / `BHARATCODE_API_KEY`) or provided per-tab inside browser `sessionStorage`.
 
 ---
 
-## 4. How to Run Locally
+## 4. How to Run Locally & Test
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/mohammedtouffeq-droid/ArthaLedger.git
 cd ArthaLedger
-
-# 2. (Optional) Configure AI API keys in environment variables (app also works out of the box in Deterministic Mode)
-# copy .env.example .env
-
-# 3. Start the server (requires Python 3.10+, zero external runtime dependencies)
 python app.py
 ```
 
-Open **`http://127.0.0.1:8080`** in your browser. Click **Load Scenario** (`Student Budget`, `Salaried Engineer`, or `Local SME Trader`) to inspect every module end-to-end.
+Open **`http://127.0.0.1:8080`** in your browser. Use the top bar to switch personas, toggle Paper/Dark theme, or click **Print Dossier** for an instant PDF/print audit report.
 
-### Run Automated Tests
+### Run Automated Test Suite
 
 ```bash
 python -m unittest discover -s tests -v

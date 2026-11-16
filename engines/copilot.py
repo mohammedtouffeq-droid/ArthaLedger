@@ -1,4 +1,4 @@
-"""Citation-grounded Financial AI Copilot with Gemini, BharatCode GLM 5.3 Flash (vision), and deterministic fallback."""
+"""Citation-grounded Financial AI Copilot with Gemini, BharatCode GLM 5.3 Flash (vision), Health Scoring, and deterministic action proposals."""
 from __future__ import annotations
 
 import json
@@ -15,11 +15,54 @@ BASE64_DATA_URL_RE = re.compile(r"^data:(image/(?:png|jpeg|webp));base64,([A-Za-
 
 SYSTEM_PROMPT = (
     "You are ArthaLedger Copilot, an evidence-first Indian personal and small-business finance analyst. "
-    "Use ONLY the verified telemetry provided in the context JSON. Always cite exact IDs like [TXN-01], "
-    "[TAX-115BAC], [TAX-87A-NEW], [FRAUD-LURE-01], [BACKTEST], or [GST-ITC-SET] when stating numbers. "
-    "Never invent INR figures, never recommend real-money live stock trades, and keep formatting crisp, "
-    "professional, and free of emojis."
+    "Ground every figure strictly in the verified telemetry JSON provided. Always include exact inline "
+    "citation tags like [TXN-01], [TAX-115BAC], [TAX-87A-NEW], [TAX-BREAKEVEN], [FRAUD-AUDIT], "
+    "[FRAUD-LURE-01], [BACKTEST-PAPER], [MF-DIRECT-DRAG], or [GST-ITC-SET] when referencing figures. "
+    "Never hallucinate INR numbers, never suggest real-money live stock trading, and keep formatting "
+    "concise, analytical, and free of emojis."
 )
+
+
+def compute_financial_health_score(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Computes a composite 0-100 Financial Readiness Score across active telemetry."""
+    ledger = context.get("ledger") or {}
+    fraud = context.get("fraud") or {}
+    tax = context.get("tax") or {}
+    backtest = context.get("backtest") or {}
+
+    savings_pct = float(ledger.get("savings_rate_pct", 0) or 0)
+    if savings_pct >= 30:
+        savings_pts = 30
+    elif savings_pct >= 15:
+        savings_pts = 22
+    elif savings_pct > 0:
+        savings_pts = 14
+    else:
+        savings_pts = 6
+
+    sub_annual = float(ledger.get("subscription_annual_runrate", 0) or 0)
+    burn_pts = 25 if sub_annual == 0 else (18 if sub_annual < 12000 else 10)
+
+    risk_score = float(fraud.get("risk_score", 0) or 0)
+    hygiene_pts = 25 if risk_score >= 55 else 20  # Detecting scam pre-payment protects funds
+
+    tax_pts = 10 if tax.get("recommended_regime") else 5
+    sharpe = float(backtest.get("sharpe_ratio", 0) or 0)
+    mkt_pts = 10 if sharpe >= 0.8 else (7 if sharpe > 0 else 4)
+
+    total = min(100, savings_pts + burn_pts + hygiene_pts + tax_pts + mkt_pts)
+    grade = "STRONG" if total >= 80 else ("MODERATE" if total >= 60 else "ATTENTION")
+    return {
+        "score": int(total),
+        "grade": grade,
+        "pillars": {
+            "cashflow_savings": savings_pts,
+            "recurring_burn_control": burn_pts,
+            "scam_defense_readiness": hygiene_pts,
+            "tax_optimization": tax_pts,
+            "risk_adjusted_investing": mkt_pts,
+        },
+    }
 
 
 def _sanitize_image(image_data: str, image_mime: str = "image/png") -> tuple[str, str]:
@@ -28,9 +71,7 @@ def _sanitize_image(image_data: str, image_mime: str = "image/png") -> tuple[str
         return "", ""
     m = BASE64_DATA_URL_RE.match(raw)
     if m:
-        mime = m.group(1).lower()
-        b64 = re.sub(r"\s+", "", m.group(2))
-        return mime, b64
+        return m.group(1).lower(), re.sub(r"\s+", "", m.group(2))
     mime = image_mime.lower() if image_mime.lower() in ALLOWED_IMAGE_MIMES else "image/png"
     b64 = re.sub(r"\s+", "", raw)
     if not re.fullmatch(r"[A-Za-z0-9+/=]+", b64 or ""):
@@ -38,11 +79,66 @@ def _sanitize_image(image_data: str, image_mime: str = "image/png") -> tuple[str
     return mime, b64
 
 
-def _build_deterministic_answer(question: str, context: Dict[str, Any], has_image: bool) -> Dict[str, Any]:
-    """Generates a deterministic, cited analysis solely from computed engine telemetry."""
-    q_lower = str(question or "").lower()
-    bullets: List[str] = []
+def _derive_actions_and_citations(context: Dict[str, Any]) -> tuple[List[Dict[str, Any]], List[str]]:
+    actions: List[Dict[str, Any]] = []
     citations: List[str] = []
+
+    ledger = context.get("ledger") or {}
+    tax = context.get("tax") or {}
+    fraud = context.get("fraud") or {}
+    backtest = context.get("backtest") or {}
+    sme = context.get("sme") or {}
+
+    net_cf = float(ledger.get("net_cashflow", 0) or 0)
+    if net_cf >= 1000:
+        suggested_sip = int(round(net_cf * 0.45, -2)) or 1000
+        actions.append({
+            "label": f"Simulate Rs.{suggested_sip:,}/mo Step-Up SIP",
+            "tab": "tax",
+            "patch": {"sipMonthlyInput": suggested_sip},
+        })
+
+    anoms = ledger.get("anomalies") or []
+    if anoms:
+        first_id = anoms[0]["citation"]
+        citations.append(first_id)
+        actions.append({
+            "label": f"Inspect Flagged Entry {first_id}",
+            "tab": "ledger",
+            "highlight_txn": first_id,
+        })
+
+    if tax.get("recommended_regime"):
+        citations.extend(["TAX-115BAC", "TAX-BREAKEVEN"])
+
+    if fraud.get("risk_score", 0) >= 25:
+        citations.append("FRAUD-AUDIT")
+        actions.append({
+            "label": "Open Scam Anatomy Breakdown",
+            "tab": "fraud",
+        })
+
+    if backtest.get("direct_vs_regular"):
+        citations.extend(["BACKTEST-PAPER", "MF-DIRECT-DRAG"])
+        actions.append({
+            "label": "Run Drawdown Dip Strategy",
+            "tab": "market",
+            "patch": {"btStrategySelect": "dip_accumulation"},
+        })
+
+    if sme.get("grand_invoice_total"):
+        citations.extend(["GST-ITC-SET", "WC-STRESS-90D"])
+
+    return actions, sorted(set(citations))
+
+
+def _build_deterministic_answer(question: str, context: Dict[str, Any], has_image: bool) -> Dict[str, Any]:
+    """Produces a quantitative executive memo strictly from computed engine telemetry."""
+    health = compute_financial_health_score(context)
+    actions, base_citations = _derive_actions_and_citations(context)
+    bullets: List[str] = [
+        f"Financial Health Index: {health['score']}/100 ({health['grade']})."
+    ]
 
     ledger = context.get("ledger") or {}
     tax = context.get("tax") or {}
@@ -54,82 +150,73 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
         spent = float(ledger.get("total_spent", 0))
         income = float(ledger.get("total_income", 0))
         net = float(ledger.get("net_cashflow", 0))
+        sub_yr = float(ledger.get("subscription_annual_runrate", 0))
         top_cats = ledger.get("categories") or []
-        top_str = ", ".join(f"{c['category']}: Rs.{c['amount']:,.0f} ({c['share_pct']}%)" for c in top_cats[:3])
+        top_str = ", ".join(f"{c['category']} ({c['share_pct']}%)" for c in top_cats[:3])
         bullets.append(
-            f"Cashflow summary: Income Rs.{income:,.0f} vs Spend Rs.{spent:,.0f} (Net Rs.{net:,.0f}). "
-            f"Top categories: {top_str or 'N/A'}."
+            f"[CASHFLOW] Net monthly surplus is Rs.{net:,.0f} (Inflow Rs.{income:,.0f} vs Outflow Rs.{spent:,.0f}, "
+            f"{ledger.get('savings_rate_pct', 0)}% savings rate). Leading spend buckets: {top_str or 'N/A'}."
         )
+        if sub_yr > 0:
+            bullets.append(
+                f"[SUB-BURN] Recurring subscriptions total Rs.{sub_yr:,.0f}/year annualized across flagged debits."
+            )
         for anom in (ledger.get("anomalies") or [])[:3]:
             bullets.append(f"[{anom['citation']}] {anom['reason']}")
-            citations.append(anom["citation"])
 
     if tax.get("recommended_regime"):
-        rec_label = "New Tax Regime (Sec 115BAC)" if tax["recommended_regime"] == "NEW_REGIME" else "Old Tax Regime"
+        rec = "New Tax Regime (Sec 115BAC)" if tax["recommended_regime"] == "NEW_REGIME" else "Old Tax Regime"
         bullets.append(
-            f"[TAX-115BAC][TAX-87A-NEW] Recommended: {rec_label}. "
-            f"New Tax: Rs.{tax['new_regime']['total_tax']:,.0f} vs Old Tax: Rs.{tax['old_regime']['total_tax']:,.0f} "
-            f"(Savings: Rs.{tax['net_tax_savings']:,.0f})."
+            f"[TAX-115BAC][TAX-BREAKEVEN] Optimal regime: {rec} "
+            f"(New Tax: Rs.{tax['new_regime']['total_tax']:,.0f} vs Old Tax: Rs.{tax['old_regime']['total_tax']:,.0f}, "
+            f"saving Rs.{tax['net_tax_savings']:,.0f}/yr; Monthly take-home ~Rs.{tax.get('monthly_take_home', 0):,.0f}). "
+            f"Old Regime requires Rs.{tax.get('breakeven_deduction', 0):,.0f} deductions to beat Budget 2025 New Regime."
         )
-        citations.extend(["TAX-115BAC", "TAX-87A-NEW"])
 
     if fraud.get("verdict"):
         bullets.append(
-            f"[FRAUD-AUDIT] Verdict: {fraud['verdict']} (Risk Score {fraud['risk_score']}/100). "
-            f"Action: {fraud['recommended_action']}"
+            f"[FRAUD-AUDIT] Active audit verdict: {fraud['verdict']} (Risk {fraud['risk_score']}/100). "
+            f"{fraud['recommended_action']}"
         )
-        for fl in (fraud.get("flags") or [])[:3]:
-            bullets.append(f"[{fl['citation']}] ({fl['severity']}) {fl['detail']}")
-            citations.append(fl["citation"])
+        for fl in (fraud.get("flags") or [])[:2]:
+            bullets.append(f"[{fl['citation']}] {fl['detail']}")
 
     if backtest.get("final_equity"):
+        drag = backtest.get("direct_vs_regular") or {}
         bullets.append(
-            f"[BACKTEST-PAPER] Historical simulation ({backtest.get('symbol')} / {backtest.get('strategy')}): "
-            f"Return {backtest.get('total_return_pct')}% vs Benchmark {backtest.get('benchmark_return_pct')}%, "
-            f"Max Drawdown {backtest.get('max_drawdown_pct')}%."
+            f"[BACKTEST-PAPER][MF-DIRECT-DRAG] {backtest.get('label')}: Strategy {backtest.get('total_return_pct')}% "
+            f"vs Benchmark {backtest.get('benchmark_return_pct')}% (Sharpe {backtest.get('sharpe_ratio')}, "
+            f"Max Drawdown {backtest.get('max_drawdown_pct')}%). Switching Regular->Direct plan avoids "
+            f"Rs.{drag.get('commission_leakage', 0):,.0f} fee drag over {drag.get('years', 15)} years."
         )
-        citations.append("BACKTEST-PAPER")
 
     if sme.get("grand_invoice_total"):
         bullets.append(
-            f"[GST-ITC-SET][WC-STRESS-90D] Invoice Total Rs.{sme['grand_invoice_total']:,.0f}, "
-            f"Net GST Payable after ITC Rs.{sme['net_gst_payable']:,.0f}, "
-            f"Receivable-Stress Cash Runway: {sme['stress_runway_days']} days."
+            f"[GST-ITC-SET][WC-STRESS-90D] SME Invoice Rs.{sme['grand_invoice_total']:,.0f}, Net GST Payable after ITC "
+            f"Rs.{sme['net_gst_payable']:,.0f}, 35% Delayed-Receivable Stress Runway: {sme['stress_runway_days']} days."
         )
-        citations.extend(["GST-ITC-SET", "WC-STRESS-90D"])
 
     if has_image:
         bullets.append(
-            "Screenshot received: deterministic text engine analyzed structured state telemetry. "
-            "Configure a Gemini or BharatCode GLM 5.3 Flash API key in Settings for OCR/vision inspection of screenshots."
+            "[VISION-PENDING] Payment/receipt screenshot attached. Add a Gemini or BharatCode GLM 5.3 Flash key "
+            "in AI Keys & Model (session-only) to run multimodal OCR inspection."
         )
 
-    if not bullets:
-        bullets.append(
-            "Run any module (Ledger, Fraud Shield, Tax Optimizer, Paper Backtester, or SME GST) first to ground "
-            "the copilot with verifiable INR telemetry."
-        )
-
-    focus_note = f"Query Focus: '{question.strip()[:120]}'\n" if q_lower else ""
-    reply_text = focus_note + "\n".join(f"- {b}" for b in bullets)
+    reply_text = f"Executive Audit for: \"{question.strip()[:120]}\"\n\n" + "\n".join(f"- {b}" for b in bullets)
+    extracted = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply_text)) | set(base_citations))
 
     return {
         "success": True,
         "provider_used": "deterministic",
-        "model_used": "artha-deterministic-citation-v1",
+        "model_used": "artha-deterministic-citation-v2",
         "reply": reply_text,
-        "citations": sorted(set(citations)),
+        "citations": extracted,
+        "actions": actions,
+        "health_score": health,
     }
 
 
-def _call_gemini(
-    api_key: str,
-    model: str,
-    question: str,
-    context_json: str,
-    img_mime: str,
-    img_b64: str,
-) -> str:
+def _call_gemini(api_key: str, model: str, question: str, context_json: str, img_mime: str, img_b64: str) -> str:
     chosen = model if model in GEMINI_MODELS else GEMINI_MODELS[0]
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{chosen}:generateContent"
     parts: List[Dict[str, Any]] = [
@@ -156,14 +243,7 @@ def _call_gemini(
     return "\n".join(str(p.get("text", "")) for p in parts_out if p.get("text")).strip()
 
 
-def _call_bharatcode(
-    api_key: str,
-    model: str,
-    question: str,
-    context_json: str,
-    img_mime: str,
-    img_b64: str,
-) -> str:
+def _call_bharatcode(api_key: str, model: str, question: str, context_json: str, img_mime: str, img_b64: str) -> str:
     chosen = model if model in BHARATCODE_MODELS else "glm-5.3-flash"
     url = "https://bharatcode.ai/api/model/v1/chat/completions"
 
@@ -188,10 +268,7 @@ def _call_bharatcode(
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=25) as resp:
@@ -219,12 +296,13 @@ def ask_financial_copilot(
     img_mime, img_b64 = _sanitize_image(image_data, image_mime)
     has_img = bool(img_b64)
     context_json = json.dumps(ctx, ensure_ascii=True)[:12000]
+    health = compute_financial_health_score(ctx)
+    actions, base_citations = _derive_actions_and_citations(ctx)
 
     prov = str(provider or "auto").strip().lower()
     gemini_key = (user_api_key if prov == "gemini" else "") or os.environ.get("GEMINI_API_KEY", "").strip()
     bc_key = (user_api_key if prov == "bharatcode" else "") or os.environ.get("BHARATCODE_API_KEY", "").strip()
     if prov == "auto" and user_api_key.strip():
-        # Heuristic routing if single custom key supplied under auto
         if model.startswith("glm-") or model.startswith("deepseek"):
             bc_key = user_api_key.strip()
         else:
@@ -236,16 +314,19 @@ def ask_financial_copilot(
             try:
                 reply = _call_gemini(gemini_key, chosen_m, q, context_json, img_mime, img_b64)
                 if reply:
+                    cites = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply)) | set(base_citations))
                     return {
                         "success": True,
                         "provider_used": "gemini",
                         "model_used": chosen_m,
                         "reply": reply,
-                        "citations": sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply))),
+                        "citations": cites,
+                        "actions": actions,
+                        "health_score": health,
                     }
             except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
                 fallback = _build_deterministic_answer(q, ctx, has_img)
-                fallback["fallback_reason"] = f"Gemini request fallback: {exc}"
+                fallback["fallback_reason"] = f"Gemini fallback: {exc}"
                 return fallback
 
         if (prov in ("bharatcode", "auto")) and bc_key:
@@ -253,12 +334,15 @@ def ask_financial_copilot(
             try:
                 reply = _call_bharatcode(bc_key, chosen_m, q, context_json, img_mime, img_b64)
                 if reply:
+                    cites = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply)) | set(base_citations))
                     return {
                         "success": True,
                         "provider_used": "bharatcode",
                         "model_used": chosen_m,
                         "reply": reply,
-                        "citations": sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply))),
+                        "citations": cites,
+                        "actions": actions,
+                        "health_score": health,
                     }
             except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
                 fallback = _build_deterministic_answer(q, ctx, has_img)

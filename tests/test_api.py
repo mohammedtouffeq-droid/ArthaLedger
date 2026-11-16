@@ -117,6 +117,25 @@ class TestArthaLedgerHttpApi(unittest.TestCase):
         self.assertTrue(captured["status"].startswith("200"))
         self.assertEqual(body.get("app"), "ArthaLedger")
 
+    def test_v2_csv_parse_health_score_and_mf_search_endpoints(self):
+        c_code, csv_parsed = self._post("/api/ledger/parse_csv", {
+            "csv_text": "Date,Description,Debit,Credit\n01-Nov,Client,,25000\n02-Nov,Swiggy,450,\n",
+            "monthly_budget_target": 12000,
+        })
+        self.assertEqual(c_code, 200)
+        self.assertEqual(csv_parsed["total_income"], 25000.0)
+        self.assertEqual(csv_parsed["total_spent"], 450.0)
+
+        h_code, health = self._post("/api/health_score", {"context": {"ledger": csv_parsed}})
+        self.assertEqual(h_code, 200)
+        self.assertTrue(health["success"])
+        self.assertIn("score", health)
+
+        with urllib.request.urlopen(f"{self.base}/api/market/mf_search", timeout=6) as r:
+            mf = json.loads(r.read().decode("utf-8"))
+        self.assertTrue(mf["success"])
+        self.assertGreaterEqual(len(mf["funds"]), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

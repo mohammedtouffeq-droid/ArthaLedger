@@ -1,4 +1,4 @@
-"""UPI and Indian bank SMS ledger parser, categorizer, and cashflow analyzer."""
+"""UPI, Indian bank SMS, and bank-statement CSV ledger parser and cashflow analyzer."""
 from __future__ import annotations
 
 import csv
@@ -9,7 +9,7 @@ from statistics import median
 from typing import Any, Dict, List
 
 AMOUNT_RE = re.compile(
-    r"(?:rs\.?|inr|₹)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
+    r"(?:rs\.?|inr)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
     re.IGNORECASE,
 )
 DATE_RE = re.compile(
@@ -45,9 +45,58 @@ def _classify_merchant(line_lower: str, tx_type: str) -> str:
     return "General & Misc"
 
 
+def _parse_amount_num(raw: Any) -> float:
+    cleaned = re.sub(r"[^0-9.]", "", str(raw or "").replace(",", ""))
+    try:
+        return float(cleaned) if cleaned else 0.0
+    except ValueError:
+        return 0.0
+
+
+def csv_statement_to_lines(csv_text: str) -> str:
+    """Converts common Indian bank/UPI CSV exports (Date, Narration/Description, Debit, Credit) into normalized lines."""
+    reader = csv.DictReader(io.StringIO(str(csv_text or "").strip()))
+    if not reader.fieldnames:
+        return ""
+    fields = {f.lower().strip(): f for f in reader.fieldnames if f}
+    date_col = next((fields[k] for k in fields if "date" in k), None)
+    desc_col = next((fields[k] for k in fields if any(w in k for w in ("narration", "desc", "remark", "merchant", "particular", "title"))), None)
+    debit_col = next((fields[k] for k in fields if ("debit" in k or "withdraw" in k or re.search(r"\bdr\b", k))), None)
+    credit_col = next((fields[k] for k in fields if ("credit" in k or "deposit" in k or re.search(r"\bcr\b", k))), None)
+    amt_col = next((fields[k] for k in fields if "amount" in k), None)
+    type_col = next((fields[k] for k in fields if "type" in k), None)
+
+    out_lines: List[str] = []
+    for row in reader:
+        dt = (row.get(date_col, "") if date_col else "").strip() or "01-Nov-2026"
+        desc = (row.get(desc_col, "") if desc_col else "").strip() or "Bank Entry"
+        dr = _parse_amount_num(row.get(debit_col, 0)) if debit_col else 0.0
+        cr = _parse_amount_num(row.get(credit_col, 0)) if credit_col else 0.0
+        if dr > 0:
+            out_lines.append(f"Debited Rs.{dr:.2f} via UPI to {desc} on {dt}.")
+        elif cr > 0:
+            out_lines.append(f"Credited Rs.{cr:.2f} towards {desc} on {dt}.")
+        elif amt_col:
+            amt = _parse_amount_num(row.get(amt_col, 0))
+            if amt > 0:
+                t_val = str(row.get(type_col, "") if type_col else "").lower()
+                verb = "Credited" if ("cr" in t_val or "in" in t_val) else "Debited"
+                prep = "towards" if verb == "Credited" else "via UPI to"
+                out_lines.append(f"{verb} Rs.{amt:.2f} {prep} {desc} on {dt}.")
+    return "\n".join(out_lines)
+
+
 def parse_sms_ledger(raw_text: str, monthly_budget_target: float = 0.0) -> Dict[str, Any]:
-    """Parses raw UPI/bank SMS lines or simple CSV entries into structured transactions."""
-    lines = [ln.strip() for ln in str(raw_text or "").splitlines() if ln.strip()]
+    """Parses raw UPI/bank SMS lines or CSV statements into categorized transactions with citations."""
+    text = str(raw_text or "").strip()
+    if "," in text.splitlines()[0] if text else False:
+        header_low = text.splitlines()[0].lower()
+        if any(k in header_low for k in ("date", "amount", "debit", "narration", "description")):
+            converted = csv_statement_to_lines(text)
+            if converted:
+                text = converted
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     transactions: List[Dict[str, Any]] = []
     category_totals: Dict[str, float] = defaultdict(float)
     merchant_counts: Dict[str, int] = defaultdict(int)
@@ -59,7 +108,6 @@ def parse_sms_ledger(raw_text: str, monthly_budget_target: float = 0.0) -> Dict[
     for idx, line in enumerate(lines, 1):
         amt_match = AMOUNT_RE.search(line)
         if not amt_match:
-            # Fallback: plain "Merchant, amount" format
             num_match = re.search(r"(?:^|[,:\s])([0-9]+(?:\.[0-9]{1,2})?)\s*$", line)
             if not num_match:
                 continue
@@ -81,7 +129,7 @@ def parse_sms_ledger(raw_text: str, monthly_budget_target: float = 0.0) -> Dict[
         merch_m = MERCHANT_TO_RE.search(line)
         merchant = merch_m.group(1).strip(" .:-") if merch_m else ""
         if not merchant:
-            words = [w for w in re.split(r"[\s,|]+", line) if not re.match(r"^(rs|inr|₹|\d)", w, re.I)]
+            words = [w for w in re.split(r"[\s,|]+", line) if not re.match(r"^(rs|inr|\d)", w, re.I)]
             merchant = " ".join(words[:3])[:32] or "UPI Counterparty"
 
         category = _classify_merchant(lower, tx_type)
@@ -107,16 +155,20 @@ def parse_sms_ledger(raw_text: str, monthly_budget_target: float = 0.0) -> Dict[
 
     med_debit = median(debit_amounts) if debit_amounts else 0.0
     anomalies: List[Dict[str, Any]] = []
+    subscription_annual_total = 0.0
     for tx in transactions:
         if tx["type"] == "debit" and med_debit > 0 and tx["amount"] >= max(1500.0, med_debit * 2.8):
             anomalies.append({
                 "citation": tx["id"],
-                "reason": f"Outlier spend Rs.{tx['amount']:,.0f} at {tx['merchant']} ({tx['amount']/med_debit:.1f}x median transaction)",
+                "severity": "HIGH",
+                "reason": f"Outlier debit Rs.{tx['amount']:,.0f} at {tx['merchant']} ({tx['amount']/med_debit:.1f}x median spend)",
             })
         if tx["type"] == "debit" and tx["category"] == "Subscriptions & Cloud":
+            subscription_annual_total += tx["amount"] * 12.0
             anomalies.append({
                 "citation": tx["id"],
-                "reason": f"Recurring subscription debit Rs.{tx['amount']:,.0f} ({tx['merchant']}) - verify active usage",
+                "severity": "MEDIUM",
+                "reason": f"Recurring subscription Rs.{tx['amount']:,.0f}/mo (Rs.{tx['amount']*12:,.0f}/yr) at {tx['merchant']}",
             })
 
     sorted_cats = sorted(
@@ -153,6 +205,7 @@ def parse_sms_ledger(raw_text: str, monthly_budget_target: float = 0.0) -> Dict[
         "budget_target": round(budget, 2),
         "budget_variance": budget_variance,
         "median_debit": round(med_debit, 2),
+        "subscription_annual_runrate": round(subscription_annual_total, 2),
         "categories": sorted_cats,
         "repeat_merchants": repeat_merchants,
         "anomalies": anomalies,

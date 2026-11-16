@@ -41,7 +41,7 @@ def _add_flag(flags: List[Dict[str, Any]], code: str, severity: str, weight: int
 
 
 def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[str, Any]:
-    """Audits SMS alerts, payment links, or upi://pay URIs and returns cited fraud findings."""
+    """Audits SMS alerts, payment links, or upi://pay URIs and returns cited fraud findings and structural anatomy."""
     raw = str(payload_text or "").strip()
     ctx = str(claimed_context or "").strip()
     combined = f"{raw}\n{ctx}".strip()
@@ -53,7 +53,6 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
     flags: List[Dict[str, Any]] = []
     score = 0
 
-    # 1. Inspect upi://pay intent parameters
     upi_matches = UPI_URI_RE.findall(raw)
     parsed_upi: Dict[str, Any] = {}
     for idx, uri in enumerate(upi_matches, 1):
@@ -101,10 +100,12 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
             except ValueError:
                 score += _add_flag(flags, f"FRAUD-AMT-{idx:02d}", "MEDIUM", 12, "Non-numeric UPI amount parameter")
 
-    # 2. Inspect URLs for shorteners or suspicious domains
     urls = URL_RE.findall(raw)
+    detected_hosts: List[str] = []
     for idx, url in enumerate(urls, 1):
         host = urllib.parse.urlparse(url).netloc.lower().split(":")[0]
+        if host:
+            detected_hosts.append(host)
         if host in SHORTENER_DOMAINS:
             score += _add_flag(
                 flags,
@@ -128,7 +129,6 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
         if url.lower().startswith("http://"):
             score += _add_flag(flags, f"FRAUD-TLS-{idx:02d}", "MEDIUM", 10, f"Unencrypted HTTP link ({host})")
 
-    # 3. Inspect social-engineering & PIN-theft triggers
     hit_num = 1
     for term, weight, detail in URGENCY_TRIGGERS:
         if term in lower:
@@ -139,13 +139,22 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
     capped_score = min(100, score)
     if capped_score >= 55:
         verdict = "HIGH_RISK_SCAM"
-        action = "DO NOT APPROVE OR CLICK. Decline any UPI collect request immediately. Remember: entering a UPI PIN ALWAYS sends money out and is NEVER required to receive funds."
+        action = "DO NOT APPROVE OR CLICK. Decline the UPI collect request and report the sender via National Cybercrime Helpline 1930 / chakshu.sancharsaathi.gov.in. Entering a UPI PIN always authorizes an outbound debit."
     elif capped_score >= 25:
         verdict = "CAUTION_VERIFY"
         action = "Do not act from links in SMS/WhatsApp. Independently verify inside your official bank/payment app before transferring or clicking."
     else:
         verdict = "LOW_RISK"
-        action = "No obvious phishing URL or PIN-lure markers detected, though always confirm payee name matches the intended merchant before entering PIN."
+        action = "No obvious phishing URL or PIN-lure markers detected. Still confirm the verified merchant name in your UPI app before entering PIN."
+
+    anatomy = [
+        {"field": "Channel Type", "value": "UPI Intent URI" if parsed_upi else ("SMS + Web Link" if urls else "Plain Text Alert")},
+        {"field": "Extracted VPA", "value": parsed_upi.get("vpa") or "None present"},
+        {"field": "Display Payee", "value": parsed_upi.get("payee_name") or "None present"},
+        {"field": "Requested Debit", "value": f"Rs.{parsed_upi['amount']}" if parsed_upi.get("amount") else "None / Unspecified"},
+        {"field": "Hosts / Domains", "value": ", ".join(detected_hosts) if detected_hosts else "No external web hosts"},
+        {"field": "PIN-For-Receipt Trap", "value": "DETECTED" if any("PIN" in f["detail"] for f in flags) else "Not detected"},
+    ]
 
     return {
         "success": True,
@@ -154,5 +163,6 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
         "recommended_action": action,
         "parsed_upi": parsed_upi,
         "detected_urls": urls[:6],
+        "anatomy": anatomy,
         "flags": flags,
     }

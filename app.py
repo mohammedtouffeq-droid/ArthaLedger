@@ -13,16 +13,38 @@ ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from engines.copilot import ask_financial_copilot
+from engines.copilot import ask_financial_copilot, compute_financial_health_score
 from engines.fraud_shield import analyze_payment_risk
-from engines.market_backtest import BENCHMARK_SERIES, run_paper_backtest
+from engines.market_backtest import BENCHMARK_SERIES, POPULAR_INDIAN_FUNDS, run_paper_backtest, search_amfi_funds
 from engines.sme_gst import compute_gst_and_cashflow
-from engines.sms_ledger import export_ledger_csv, parse_sms_ledger
+from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
 from engines.tax_wealth import calculate_indian_tax, simulate_emi_prepayment, simulate_sip_wealth
 from sample_data import PERSONAS, list_personas_summary
 
+
+def _load_local_dotenv() -> None:
+    """Loads optional runtime .env variables from repository root without overriding OS env."""
+    env_path = ROOT_DIR / ".env"
+    if not env_path.exists() or not env_path.is_file():
+        return
+    try:
+        for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            clean = line.strip()
+            if not clean or clean.startswith("#") or "=" not in clean:
+                continue
+            k, v = clean.split("=", 1)
+            key = k.strip()
+            val = v.strip().strip('"').strip("'")
+            if key and val and key not in os.environ:
+                os.environ[key] = val
+    except OSError:
+        pass
+
+
+_load_local_dotenv()
+
 STATIC_DIR = ROOT_DIR / "static"
-MAX_BODY_BYTES = 6 * 1024 * 1024  # 6 MB ceiling for multimodal screenshot audit payloads
+MAX_BODY_BYTES = 6 * 1024 * 1024
 
 STATIC_MIME_TYPES: Dict[str, str] = {
     ".html": "text/html; charset=utf-8",
@@ -72,7 +94,7 @@ def _int_val(val: Any, default: int = 0) -> int:
 
 
 class ArthaLedgerHandler(BaseHTTPRequestHandler):
-    """Serves static institutional fintech UI and deterministic/AI JSON endpoints."""
+    """Serves institutional fintech UI and verified financial engine JSON APIs."""
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -147,9 +169,17 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
             if pid and pid in PERSONAS:
                 self._send_json({"success": True, "persona": PERSONAS[pid]})
                 return
-            self._send_json({"success": True, "personas": list_personas_summary(), "benchmarks": [
-                {"id": k, "label": v["label"]} for k, v in BENCHMARK_SERIES.items()
-            ]})
+            self._send_json({
+                "success": True,
+                "personas": list_personas_summary(),
+                "benchmarks": [{"id": k, "label": v["label"]} for k, v in BENCHMARK_SERIES.items()],
+                "popular_funds": POPULAR_INDIAN_FUNDS,
+            })
+            return
+
+        if path == "/api/market/mf_search":
+            q = (query.get("q", [""])[0] or "").strip()
+            self._send_json(search_amfi_funds(q))
             return
 
         if path in ("/", "/index.html") or path.startswith("/static/"):
@@ -182,6 +212,16 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
                 raw_text=str(body.get("raw_text", "")),
                 monthly_budget_target=_num(body.get("monthly_budget_target"), 0.0),
             )
+            self._send_json(res)
+            return
+
+        if path == "/api/ledger/parse_csv":
+            lines = csv_statement_to_lines(str(body.get("csv_text", "")))
+            res = parse_sms_ledger(
+                raw_text=lines,
+                monthly_budget_target=_num(body.get("monthly_budget_target"), 0.0),
+            )
+            res["normalized_feed"] = lines
             self._send_json(res)
             return
 
@@ -250,6 +290,7 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
                 fast_window=_int_val(body.get("fast_window"), 3),
                 slow_window=_int_val(body.get("slow_window"), 7),
                 custom_prices=custom_list,
+                amfi_scheme_code=str(body.get("amfi_scheme_code", "")),
             )
             self._send_json(res)
             return
@@ -265,6 +306,11 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
                 pending_receivables=_num(body.get("pending_receivables"), 65000.0),
             )
             self._send_json(res)
+            return
+
+        if path == "/api/health_score":
+            ctx = body.get("context") if isinstance(body.get("context"), dict) else {}
+            self._send_json({"success": True, **compute_financial_health_score(ctx)})
             return
 
         if path == "/api/copilot/ask":

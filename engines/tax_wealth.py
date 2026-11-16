@@ -1,11 +1,10 @@
-"""Indian Income Tax Optimizer (Old vs New Regime Budget 2025), SIP Wealth & Loan EMI Engine."""
+"""Indian Income Tax Optimizer (Old vs New Regime Budget 2025 + Breakeven Solver), SIP Wealth & Loan EMI Engine."""
 from __future__ import annotations
 
 from typing import Any, Dict, List
 
 
 def _progressive_slab_tax(taxable: float, slabs: List[tuple[float, float]]) -> tuple[float, List[Dict[str, Any]]]:
-    """Computes progressive slab-by-slab Indian income tax with itemized trace."""
     remaining = max(0.0, taxable)
     prev_limit = 0.0
     total = 0.0
@@ -30,6 +29,28 @@ def _progressive_slab_tax(taxable: float, slabs: List[tuple[float, float]]) -> t
     return total, breakdown
 
 
+def _compute_old_tax_only(gross: float, total_deductions: float) -> float:
+    old_taxable = max(0.0, gross - total_deductions)
+    old_slabs = [(250000.0, 0.00), (500000.0, 0.05), (1000000.0, 0.20), (float("inf"), 0.30)]
+    old_base, _ = _progressive_slab_tax(old_taxable, old_slabs)
+    old_rebate = min(12500.0, old_base) if old_taxable <= 500000.0 else 0.0
+    return round(max(0.0, old_base - old_rebate) * 1.04, 2)
+
+
+def _solve_breakeven_deduction(gross: float, target_new_tax: float) -> float:
+    """Finds exact Old Regime total deductions required so Old Regime tax equals New Regime tax."""
+    if target_new_tax <= 0.0:
+        return max(0.0, gross - 500000.0)
+    low, high = 0.0, gross
+    for _ in range(42):
+        mid = (low + high) / 2.0
+        if _compute_old_tax_only(gross, mid) > target_new_tax:
+            low = mid
+        else:
+            high = mid
+    return round(high, 0)
+
+
 def calculate_indian_tax(
     gross_income: float,
     is_salaried: bool = True,
@@ -40,15 +61,12 @@ def calculate_indian_tax(
     nps_80ccd1b: float = 0.0,
 ) -> Dict[str, Any]:
     """
-    Compares Indian Old Regime vs New Regime (Section 115BAC, Union Budget 2025 FY 2025-26 / 2026-27):
-    New Regime slabs: 0-4L:0%, 4-8L:5%, 8-12L:10%, 12-16L:15%, 16-20L:20%, 20-24L:25%, >24L:30%.
-    Salaried Standard Deduction: Rs.75,000 (New), Rs.50,000 (Old).
-    Sec 87A Rebate: up to Rs.60,000 when taxable <= Rs.12,00,000 (with marginal relief above 12L) in New Regime;
-                    up to Rs.12,500 when taxable <= Rs.5,00,000 in Old Regime. Cess = 4%.
+    Compares Indian Old Regime vs New Regime (Section 115BAC, Union Budget 2025 FY 2025-26 / 2026-27)
+    including exact Rs.75,000 Standard Deduction, Sec 87A Rs.60,000 rebate up to Rs.12,00,000 taxable,
+    marginal relief above Rs.12L, 4% Cess, monthly take-home, and exact deduction breakeven.
     """
     gross = max(0.0, float(gross_income or 0.0))
 
-    # --- NEW REGIME (Budget 2025, FY 2025-26 / FY 2026-27) ---
     new_std_ded = 75000.0 if is_salaried and gross > 0 else 0.0
     new_taxable = max(0.0, gross - new_std_ded)
     new_slabs = [
@@ -68,7 +86,6 @@ def calculate_indian_tax(
         new_rebate = min(60000.0, new_base_tax)
         new_tax_after_rebate = max(0.0, new_base_tax - new_rebate)
     else:
-        # Marginal relief: tax cannot exceed excess income above Rs.12,00,000
         excess_over_12l = new_taxable - 1200000.0
         if new_base_tax > excess_over_12l:
             new_marginal_relief = new_base_tax - excess_over_12l
@@ -79,7 +96,6 @@ def calculate_indian_tax(
     new_cess = new_tax_after_rebate * 0.04
     new_total_tax = round(new_tax_after_rebate + new_cess, 2)
 
-    # --- OLD REGIME ---
     old_std_ded = 50000.0 if is_salaried and gross > 0 else 0.0
     cap_80c = min(150000.0, max(0.0, float(deduction_80c or 0.0)))
     cap_80d = min(100000.0, max(0.0, float(deduction_80d or 0.0)))
@@ -89,12 +105,7 @@ def calculate_indian_tax(
     old_total_deductions = old_std_ded + cap_80c + cap_80d + cap_hra + cap_hl + cap_nps
 
     old_taxable = max(0.0, gross - old_total_deductions)
-    old_slabs = [
-        (250000.0, 0.00),
-        (500000.0, 0.05),
-        (1000000.0, 0.20),
-        (float("inf"), 0.30),
-    ]
+    old_slabs = [(250000.0, 0.00), (500000.0, 0.05), (1000000.0, 0.20), (float("inf"), 0.30)]
     old_base_tax, old_breakdown = _progressive_slab_tax(old_taxable, old_slabs)
     old_rebate = min(12500.0, old_base_tax) if old_taxable <= 500000.0 else 0.0
     old_after_rebate = max(0.0, old_base_tax - old_rebate)
@@ -102,21 +113,24 @@ def calculate_indian_tax(
     old_total_tax = round(old_after_rebate + old_cess, 2)
 
     savings = round(abs(old_total_tax - new_total_tax), 2)
+    breakeven_deduction = _solve_breakeven_deduction(gross, new_total_tax)
+    best_tax = min(new_total_tax, old_total_tax)
+    monthly_take_home = round(max(0.0, (gross - best_tax) / 12.0), 2)
+
     if new_total_tax <= old_total_tax:
         recommended = "NEW_REGIME"
         summary = (
-            f"New Regime (Sec 115BAC) saves Rs.{savings:,.0f} vs Old Regime on gross income Rs.{gross:,.0f}."
-            if savings > 0
-            else f"Both regimes result in identical net tax Rs.{new_total_tax:,.0f}."
+            f"New Regime (Sec 115BAC) saves Rs.{savings:,.0f} vs Old Regime. "
+            f"Old Regime needs at least Rs.{breakeven_deduction:,.0f} in total deductions to break even."
         )
     else:
         recommended = "OLD_REGIME"
-        summary = f"Old Regime saves Rs.{savings:,.0f} vs New Regime due to Rs.{old_total_deductions:,.0f} claimed deductions."
+        summary = f"Old Regime saves Rs.{savings:,.0f} because your deductions (Rs.{old_total_deductions:,.0f}) exceed the Rs.{breakeven_deduction:,.0f} breakeven threshold."
 
     citations = [
-        {"code": "TAX-115BAC", "note": "New Regime FY 2025-26/26-27 progressive slabs (0% to 30%), Standard Deduction Rs.75,000"},
-        {"code": "TAX-87A-NEW", "note": "Section 87A full rebate up to Rs.12,00,000 taxable income (Rs.12,75,000 salaried) + marginal relief"},
-        {"code": "TAX-OLD-DED", "note": "Old Regime deductions: Std Ded Rs.50k, 80C cap Rs.1.5L, 80CCD(1B) Rs.50k, 80D, 24(b), HRA"},
+        {"code": "TAX-115BAC", "note": "Budget 2025 New Regime slabs (0-4L 0%, 4-8L 5%, 8-12L 10%, 12-16L 15%, 16-20L 20%, 20-24L 25%, >24L 30%) + Rs.75k Std Ded"},
+        {"code": "TAX-87A-NEW", "note": "Section 87A Rs.60,000 rebate up to Rs.12,00,000 taxable (Rs.12,75,000 salaried tax-free) + marginal relief"},
+        {"code": "TAX-BREAKEVEN", "note": f"Algebraic crossover deduction point: Rs.{breakeven_deduction:,.0f}"},
     ]
 
     return {
@@ -125,6 +139,8 @@ def calculate_indian_tax(
         "is_salaried": is_salaried,
         "recommended_regime": recommended,
         "net_tax_savings": savings,
+        "breakeven_deduction": breakeven_deduction,
+        "monthly_take_home": monthly_take_home,
         "summary": summary,
         "new_regime": {
             "standard_deduction": new_std_ded,
@@ -213,9 +229,7 @@ def simulate_emi_prepayment(
         factor = (1.0 + r) ** n
         base_emi = p * r * factor / (factor - 1.0)
 
-    baseline_total_paid = base_emi * n
-    baseline_interest = max(0.0, baseline_total_paid - p)
-
+    baseline_interest = max(0.0, (base_emi * n) - p)
     bal = p
     months_with_prepay = 0
     total_interest_prepay = 0.0
