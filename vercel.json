@@ -1,12 +1,17 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "api/index.py", "use": "@vercel/python" }
-  ],
-  "routes": [
-    { "src": "^/api/(.*)$", "dest": "/api/index?__artha_path__=/api/$1" },
-    { "src": "^/static/(.*)$", "dest": "/api/index?__artha_path__=/static/$1" },
-    { "src": "^/$", "dest": "/api/index?__artha_path__=/" },
-    { "src": "^/(.*)$", "dest": "/api/index?__artha_path__=/$1" }
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index?__artha_path__=/api/$1"
+    },
+    {
+      "source": "/static/(.*)",
+      "destination": "/api/index?__artha_path__=/static/$1"
+    },
+    {
+      "source": "/((?!api/|static/).*)",
+      "destination": "/api/index?__artha_path__=/index.html"
+    }
   ]
 }

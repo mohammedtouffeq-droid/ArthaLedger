@@ -96,6 +96,27 @@ class TestArthaLedgerHttpApi(unittest.TestCase):
         self.assertTrue(copilot["success"])
         self.assertIn("TAX-115BAC", copilot["citations"])
 
+    def test_vercel_wsgi_bridge_dispatches_routes(self):
+        import io
+        from api.index import app as wsgi_app
+
+        captured = {}
+
+        def start_resp(status, headers):
+            captured["status"] = status
+            captured["headers"] = dict(headers)
+
+        environ = {
+            "REQUEST_METHOD": "GET",
+            "PATH_INFO": "/api/index",
+            "QUERY_STRING": "__artha_path__=/api/health",
+            "wsgi.input": io.BytesIO(b""),
+        }
+        chunks = wsgi_app(environ, start_resp)
+        body = json.loads(b"".join(chunks).decode("utf-8"))
+        self.assertTrue(captured["status"].startswith("200"))
+        self.assertEqual(body.get("app"), "ArthaLedger")
+
 
 if __name__ == "__main__":
     unittest.main()
