@@ -16,7 +16,13 @@ from engines.fraud_shield import analyze_payment_risk
 from engines.market_backtest import run_paper_backtest, search_amfi_funds, simulate_direct_vs_regular
 from engines.sme_gst import compute_gst_and_cashflow
 from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
-from engines.tax_wealth import calculate_indian_tax, simulate_emi_prepayment, simulate_sip_wealth
+from engines.tax_wealth import (
+    calculate_indian_tax,
+    estimate_equity_mf_tax,
+    simulate_emi_prepayment,
+    simulate_sip_wealth,
+    solve_goal_sip,
+)
 
 
 class TestFinancialEngines(unittest.TestCase):
@@ -172,6 +178,30 @@ class TestFinancialEngines(unittest.TestCase):
             yo_res = ask_financial_copilot("yoo", context={"ledger": parsed, "fraud": scam}, provider="auto")
         self.assertNotIn("SME Invoice", yo_res["reply"])
         self.assertIn("Live Telemetry Loaded", yo_res["reply"])
+
+    def test_v3_fraud_apk_homoglyph_goal_sip_and_capital_gains(self):
+        apk_scam = analyze_payment_risk("URGENT: Download eChallan_RTO_Verify.apk or call 9876543210 for KYC helpline")
+        self.assertEqual(apk_scam["verdict"], "HIGH_RISK_SCAM")
+        apk_ids = [f["citation"] for f in apk_scam["flags"]]
+        self.assertIn("FRAUD-APK-01", apk_ids)
+        self.assertIn("FRAUD-TEL-01", apk_ids)
+
+        homo_scam = analyze_payment_risk("Update \u200bsbi KYC now")
+        homo_ids = [f["citation"] for f in homo_scam["flags"]]
+        self.assertIn("FRAUD-HOMO-01", homo_ids)
+
+        goal = solve_goal_sip(target_corpus_today_inr=1000000, annual_return_pct=12.0, years=10, inflation_pct=6.0)
+        self.assertTrue(goal["success"])
+        self.assertGreater(goal["inflation_adjusted_target"], 1000000)
+        self.assertGreater(goal["required_monthly_sip"], 0)
+
+        ltcg = estimate_equity_mf_tax(gain_amount=225000, holding_months=18)
+        self.assertEqual(ltcg["exempt_amount"], 125000.0)
+        self.assertEqual(ltcg["estimated_tax_with_cess"], 13000.0)
+
+        stcg = estimate_equity_mf_tax(gain_amount=100000, holding_months=6)
+        self.assertEqual(stcg["exempt_amount"], 0.0)
+        self.assertEqual(stcg["estimated_tax_with_cess"], 20800.0)
 
 
 if __name__ == "__main__":

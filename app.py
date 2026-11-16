@@ -18,7 +18,13 @@ from engines.fraud_shield import analyze_payment_risk
 from engines.market_backtest import BENCHMARK_SERIES, POPULAR_INDIAN_FUNDS, run_paper_backtest, search_amfi_funds
 from engines.sme_gst import compute_gst_and_cashflow
 from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
-from engines.tax_wealth import calculate_indian_tax, simulate_emi_prepayment, simulate_sip_wealth
+from engines.tax_wealth import (
+    calculate_indian_tax,
+    estimate_equity_mf_tax,
+    simulate_emi_prepayment,
+    simulate_sip_wealth,
+    solve_goal_sip,
+)
 from sample_data import PERSONAS, list_personas_summary
 
 
@@ -276,6 +282,20 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
             self._send_json(res)
             return
 
+        if path == "/api/wealth/goal":
+            goal = solve_goal_sip(
+                target_corpus_today_inr=_num(body.get("target_today_inr"), 1000000.0),
+                annual_return_pct=_num(body.get("annual_return_pct"), 12.0),
+                years=_int_val(body.get("years"), 10),
+                inflation_pct=_num(body.get("inflation_pct"), 6.0),
+            )
+            cap_gains = estimate_equity_mf_tax(
+                gain_amount=_num(body.get("gain_amount"), 250000.0),
+                holding_months=_int_val(body.get("holding_months"), 18),
+            )
+            self._send_json({"success": True, "goal": goal, "capital_gains_tax": cap_gains})
+            return
+
         if path == "/api/market/backtest":
             raw_custom = body.get("custom_prices")
             custom_list = None
@@ -315,6 +335,8 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
 
         if path == "/api/copilot/ask":
             session_key = str(self.headers.get("X-User-AI-Key", "") or body.get("user_api_key", "")).strip()
+            raw_hist = body.get("history")
+            history = raw_hist if isinstance(raw_hist, list) else []
             res = ask_financial_copilot(
                 question=str(body.get("question", "")),
                 context=body.get("context") if isinstance(body.get("context"), dict) else {},
@@ -323,6 +345,7 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
                 user_api_key=session_key,
                 image_data=str(body.get("image_data", "")),
                 image_mime=str(body.get("image_mime", "image/png")),
+                history=history,
             )
             self._send_json(res, status=200 if res.get("success") else 400)
             return

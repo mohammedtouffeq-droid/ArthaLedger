@@ -1,4 +1,4 @@
-"""Indian Income Tax Optimizer (Old vs New Regime Budget 2025 + Breakeven Solver), SIP Wealth & Loan EMI Engine."""
+"""Indian Income Tax Optimizer (Budget 2025 + Breakeven + Slab Waterfall), Goal SIP, Capital Gains & Loan EMI Engine."""
 from __future__ import annotations
 
 from typing import Any, Dict, List
@@ -11,9 +11,7 @@ def _progressive_slab_tax(taxable: float, slabs: List[tuple[float, float]]) -> t
     breakdown: List[Dict[str, Any]] = []
 
     for upper, rate in slabs:
-        if remaining <= prev_limit:
-            break
-        slice_top = min(remaining, upper)
+        slice_top = min(remaining, upper) if remaining > prev_limit else prev_limit
         band_income = max(0.0, slice_top - prev_limit)
         band_tax = band_income * rate
         total += band_tax
@@ -38,7 +36,6 @@ def _compute_old_tax_only(gross: float, total_deductions: float) -> float:
 
 
 def _solve_breakeven_deduction(gross: float, target_new_tax: float) -> float:
-    """Finds exact Old Regime total deductions required so Old Regime tax equals New Regime tax."""
     if target_new_tax <= 0.0:
         return max(0.0, gross - 500000.0)
     low, high = 0.0, gross
@@ -62,8 +59,8 @@ def calculate_indian_tax(
 ) -> Dict[str, Any]:
     """
     Compares Indian Old Regime vs New Regime (Section 115BAC, Union Budget 2025 FY 2025-26 / 2026-27)
-    including exact Rs.75,000 Standard Deduction, Sec 87A Rs.60,000 rebate up to Rs.12,00,000 taxable,
-    marginal relief above Rs.12L, 4% Cess, monthly take-home, and exact deduction breakeven.
+    including Rs.75,000 Standard Deduction, Sec 87A Rs.60,000 rebate up to Rs.12,00,000 taxable,
+    marginal relief above Rs.12L, 4% Cess, slab waterfall, monthly take-home, and deduction breakeven.
     """
     gross = max(0.0, float(gross_income or 0.0))
 
@@ -128,8 +125,8 @@ def calculate_indian_tax(
         summary = f"Old Regime saves Rs.{savings:,.0f} because your deductions (Rs.{old_total_deductions:,.0f}) exceed the Rs.{breakeven_deduction:,.0f} breakeven threshold."
 
     citations = [
-        {"code": "TAX-115BAC", "note": "Budget 2025 New Regime slabs (0-4L 0%, 4-8L 5%, 8-12L 10%, 12-16L 15%, 16-20L 20%, 20-24L 25%, >24L 30%) + Rs.75k Std Ded"},
-        {"code": "TAX-87A-NEW", "note": "Section 87A Rs.60,000 rebate up to Rs.12,00,000 taxable (Rs.12,75,000 salaried tax-free) + marginal relief"},
+        {"code": "TAX-115BAC", "note": "Budget 2025 New Regime slabs (0% to 30%) + Rs.75k Std Ded"},
+        {"code": "TAX-87A-NEW", "note": "Section 87A Rs.60,000 rebate up to Rs.12,00,000 taxable (Rs.12.75L salaried) + marginal relief"},
         {"code": "TAX-BREAKEVEN", "note": f"Algebraic crossover deduction point: Rs.{breakeven_deduction:,.0f}"},
     ]
 
@@ -208,6 +205,61 @@ def simulate_sip_wealth(
         "projected_real_corpus": yearly_series[-1]["real_value_today_inr"],
         "estimated_wealth_gain": round(corpus - invested, 2),
         "series": yearly_series,
+    }
+
+
+def solve_goal_sip(
+    target_corpus_today_inr: float,
+    annual_return_pct: float = 12.0,
+    years: int = 10,
+    inflation_pct: float = 6.0,
+) -> Dict[str, Any]:
+    """Calculates monthly SIP required to reach an inflation-adjusted financial target."""
+    target_real = max(1000.0, float(target_corpus_today_inr or 0.0))
+    yrs = max(1, min(40, int(years or 10)))
+    r_m = max(0.0, float(annual_return_pct or 0.0)) / 100.0 / 12.0
+    inf = max(0.0, float(inflation_pct or 0.0)) / 100.0
+
+    future_nominal_target = target_real * ((1.0 + inf) ** yrs)
+    months = yrs * 12
+    if r_m == 0:
+        req_sip = future_nominal_target / months
+    else:
+        annuity_factor = (((1.0 + r_m) ** months) - 1.0) / r_m * (1.0 + r_m)
+        req_sip = future_nominal_target / annuity_factor
+
+    return {
+        "success": True,
+        "target_today_inr": round(target_real, 2),
+        "inflation_adjusted_target": round(future_nominal_target, 2),
+        "required_monthly_sip": round(req_sip, 0),
+        "years": yrs,
+    }
+
+
+def estimate_equity_mf_tax(gain_amount: float, holding_months: int = 18) -> Dict[str, Any]:
+    """Computes Indian Equity MF capital gains tax under FY 2025-26 rules (STCG 20% <12m, LTCG 12.5% above Rs.1.25L >=12m)."""
+    gain = max(0.0, float(gain_amount or 0.0))
+    months = max(1, int(holding_months or 1))
+    if months >= 12:
+        exempt = min(125000.0, gain)
+        taxable_gain = max(0.0, gain - exempt)
+        base_tax = taxable_gain * 0.125
+        kind = "LTCG (12.5% above Rs.1,25,000 exemption)"
+    else:
+        exempt = 0.0
+        taxable_gain = gain
+        base_tax = taxable_gain * 0.20
+        kind = "STCG (20% under 12 months)"
+    total_tax = round(base_tax * 1.04, 2)
+    return {
+        "success": True,
+        "regime_label": kind,
+        "gain_amount": round(gain, 2),
+        "exempt_amount": round(exempt, 2),
+        "taxable_gain": round(taxable_gain, 2),
+        "estimated_tax_with_cess": total_tax,
+        "post_tax_gain": round(max(0.0, gain - total_tax), 2),
     }
 
 

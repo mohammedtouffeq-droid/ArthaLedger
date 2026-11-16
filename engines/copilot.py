@@ -1,4 +1,4 @@
-"""Citation-grounded Financial AI Copilot with Gemini, BharatCode GLM 5.3 Flash (vision), Health Scoring, and deterministic action proposals."""
+"""Citation-grounded Financial AI Copilot with Gemini 3.x fallback chain, BharatCode GLM 5.3 Flash (vision), multi-turn history & deterministic engine."""
 from __future__ import annotations
 
 import json
@@ -8,18 +8,19 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List
 
-GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash")
+GEMINI_MODELS = ("gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash")
 BHARATCODE_MODELS = ("glm-5.3-flash", "deepseek-chat")
 ALLOWED_IMAGE_MIMES = frozenset({"image/png", "image/jpeg", "image/webp"})
 BASE64_DATA_URL_RE = re.compile(r"^data:(image/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$", re.IGNORECASE)
+SAFE_MODEL_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 
 SYSTEM_PROMPT = (
     "You are ArthaLedger Copilot, an evidence-first Indian personal and small-business finance analyst. "
-    "Ground every figure strictly in the verified telemetry JSON provided. Always include exact inline "
-    "citation tags like [TXN-01], [TAX-115BAC], [TAX-87A-NEW], [TAX-BREAKEVEN], [FRAUD-AUDIT], "
-    "[FRAUD-LURE-01], [BACKTEST-PAPER], [MF-DIRECT-DRAG], or [GST-ITC-SET] when referencing figures. "
-    "Never hallucinate INR numbers, never suggest real-money live stock trading, and keep formatting "
-    "concise, analytical, and free of emojis."
+    "Ground every figure strictly in the verified telemetry JSON provided. Always cite inline codes like "
+    "[TXN-01], [CASHFLOW], [TAX-115BAC], [TAX-87A-NEW], [TAX-BREAKEVEN], [FRAUD-AUDIT], [FRAUD-LURE-01], "
+    "[BACKTEST-PAPER], [MF-DIRECT-DRAG], or [GST-ITC-SET] when referencing numbers. "
+    "Be concise, helpful, never invent INR amounts, never recommend live real-money stock trades, "
+    "and use plain authoritative prose with zero emojis."
 )
 
 
@@ -44,7 +45,7 @@ def compute_financial_health_score(context: Dict[str, Any]) -> Dict[str, Any]:
     burn_pts = 25 if sub_annual == 0 else (18 if sub_annual < 12000 else 10)
 
     risk_score = float(fraud.get("risk_score", 0) or 0)
-    hygiene_pts = 25 if risk_score >= 55 else 20  # Detecting scam pre-payment protects funds
+    hygiene_pts = 25 if risk_score >= 55 else 20
 
     tax_pts = 10 if tax.get("recommended_regime") else 5
     sharpe = float(backtest.get("sharpe_ratio", 0) or 0)
@@ -102,29 +103,18 @@ def _derive_actions_and_citations(context: Dict[str, Any]) -> tuple[List[Dict[st
     if anoms:
         first_id = anoms[0]["citation"]
         citations.append(first_id)
-        actions.append({
-            "label": f"Inspect Flagged Entry {first_id}",
-            "tab": "ledger",
-            "highlight_txn": first_id,
-        })
+        actions.append({"label": f"Inspect Flagged Entry {first_id}", "tab": "ledger", "highlight_txn": first_id})
 
     if tax.get("recommended_regime"):
         citations.extend(["TAX-115BAC", "TAX-BREAKEVEN"])
 
     if fraud.get("risk_score", 0) >= 25:
         citations.append("FRAUD-AUDIT")
-        actions.append({
-            "label": "Open Scam Anatomy Breakdown",
-            "tab": "fraud",
-        })
+        actions.append({"label": "Open Scam Anatomy Breakdown", "tab": "fraud"})
 
     if backtest.get("direct_vs_regular"):
         citations.extend(["BACKTEST-PAPER", "MF-DIRECT-DRAG"])
-        actions.append({
-            "label": "Run Drawdown Dip Strategy",
-            "tab": "market",
-            "patch": {"btStrategySelect": "dip_accumulation"},
-        })
+        actions.append({"label": "Run Drawdown Dip Strategy", "tab": "market", "patch": {"btStrategySelect": "dip_accumulation"}})
 
     if sme.get("grand_invoice_total"):
         citations.extend(["GST-ITC-SET", "WC-STRESS-90D"])
@@ -133,7 +123,7 @@ def _derive_actions_and_citations(context: Dict[str, Any]) -> tuple[List[Dict[st
 
 
 def _build_deterministic_answer(question: str, context: Dict[str, Any], has_image: bool) -> Dict[str, Any]:
-    """Produces a targeted, conversational or executive diagnostic strictly from computed telemetry."""
+    """Produces a targeted conversational or executive diagnostic strictly from computed telemetry."""
     q_clean = question.strip()
     q_low = q_clean.lower()
     health = compute_financial_health_score(context)
@@ -153,10 +143,9 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
         reply_text = (
             f"ArthaLedger Deterministic Copilot ready (Financial Health Index: {health['score']}/100 - {health['grade']}).\n\n"
             f"Live Telemetry Loaded:\n"
-            f"- [CASHFLOW] Monthly surplus Rs.{net_cf:,.0f} (Recurring subscriptions tracked: Rs.{sub_yr:,.0f}/yr).\n"
+            f"- [CASHFLOW] Monthly surplus Rs.{net_cf:,.0f} (Subscriptions tracked: Rs.{sub_yr:,.0f}/yr).\n"
             f"- [FRAUD-AUDIT] Active payment audit risk: {risk}/100.\n\n"
-            "Ask a specific question (for example: 'Audit my subscriptions', 'How much tax can I save?', "
-            "'Verify this UPI scam link', or click 'Full Money Audit' above). To enable live conversational LLM + screenshot OCR, add a Gemini or BharatCode GLM 5.3 Flash key under AI Keys."
+            "Ask about your subscriptions, tax regime breakeven, scam link audit, AMFI mutual fund performance, or click Full Money Audit."
         )
         extracted = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply_text)))
         return {
@@ -192,9 +181,7 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
             f"{ledger.get('savings_rate_pct', 0)}% savings rate). Leading spend buckets: {top_str or 'N/A'}."
         )
         if sub_yr > 0:
-            bullets.append(
-                f"[SUB-BURN] Recurring subscriptions total Rs.{sub_yr:,.0f}/year annualized across flagged debits."
-            )
+            bullets.append(f"[SUB-BURN] Recurring subscriptions total Rs.{sub_yr:,.0f}/year annualized across flagged debits.")
         for anom in (ledger.get("anomalies") or [])[:4]:
             bullets.append(f"[{anom['citation']}] {anom['reason']}")
 
@@ -232,8 +219,7 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
 
     if has_image:
         bullets.append(
-            "[VISION-PENDING] Payment/receipt screenshot attached. Add a Gemini or BharatCode GLM 5.3 Flash key "
-            "in AI Keys (session-only) to run multimodal OCR inspection."
+            "[VISION-PENDING] Screenshot attached. Add a live Gemini or BharatCode GLM 5.3 Flash key in AI Keys for vision inspection."
         )
 
     reply_text = f"Grounded Telemetry Response ({q_clean[:90]}):\n\n" + "\n".join(f"- {b}" for b in bullets)
@@ -250,18 +236,35 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
     }
 
 
-def _call_gemini(api_key: str, model: str, question: str, context_json: str, img_mime: str, img_b64: str) -> str:
-    chosen = model if model in GEMINI_MODELS else GEMINI_MODELS[0]
+def _call_gemini(
+    api_key: str,
+    model: str,
+    question: str,
+    context_json: str,
+    img_mime: str,
+    img_b64: str,
+    history: List[Dict[str, str]] | None = None,
+) -> str:
+    chosen = model if SAFE_MODEL_RE.match(model or "") and not model.startswith(("gemini-2.5", "gemini-2.0", "gemini-1.")) else GEMINI_MODELS[0]
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{chosen}:generateContent"
+
+    contents: List[Dict[str, Any]] = []
+    for turn in (history or [])[-6:]:
+        role = "model" if turn.get("role") == "assistant" else "user"
+        txt = str(turn.get("content", "")).strip()
+        if txt:
+            contents.append({"role": role, "parts": [{"text": txt[:1500]}]})
+
     parts: List[Dict[str, Any]] = [
         {"text": f"Context Telemetry JSON:\n{context_json}\n\nUser Question: {question}"}
     ]
     if img_b64 and img_mime:
         parts.append({"inlineData": {"mimeType": img_mime, "data": img_b64}})
+    contents.append({"role": "user", "parts": parts})
 
     payload = {
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-        "contents": [{"role": "user", "parts": parts}],
+        "contents": contents,
         "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
     }
     req = urllib.request.Request(
@@ -270,16 +273,31 @@ def _call_gemini(api_key: str, model: str, question: str, context_json: str, img
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=25) as resp:
+    with urllib.request.urlopen(req, timeout=14) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     candidates = data.get("candidates") or []
     parts_out = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
     return "\n".join(str(p.get("text", "")) for p in parts_out if p.get("text")).strip()
 
 
-def _call_bharatcode(api_key: str, model: str, question: str, context_json: str, img_mime: str, img_b64: str) -> str:
+def _call_bharatcode(
+    api_key: str,
+    model: str,
+    question: str,
+    context_json: str,
+    img_mime: str,
+    img_b64: str,
+    history: List[Dict[str, str]] | None = None,
+) -> str:
     chosen = model if model in BHARATCODE_MODELS else "glm-5.3-flash"
     url = "https://bharatcode.ai/api/model/v1/chat/completions"
+
+    messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for turn in (history or [])[-6:]:
+        role = "assistant" if turn.get("role") == "assistant" else "user"
+        txt = str(turn.get("content", "")).strip()
+        if txt:
+            messages.append({"role": role, "content": txt[:1500]})
 
     text_block = f"Context Telemetry JSON:\n{context_json}\n\nUser Question: {question}"
     if img_b64 and img_mime and chosen == "glm-5.3-flash":
@@ -289,23 +307,16 @@ def _call_bharatcode(api_key: str, model: str, question: str, context_json: str,
         ]
     else:
         user_content = text_block
+    messages.append({"role": "user", "content": user_content})
 
-    payload = {
-        "model": chosen,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        "temperature": 0.2,
-        "max_tokens": 900,
-    }
+    payload = {"model": chosen, "messages": messages, "temperature": 0.2, "max_tokens": 900}
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=25) as resp:
+    with urllib.request.urlopen(req, timeout=20) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     choices = data.get("choices") or []
     msg = (choices[0].get("message") or {}) if choices else {}
@@ -320,8 +331,9 @@ def ask_financial_copilot(
     user_api_key: str = "",
     image_data: str = "",
     image_mime: str = "image/png",
+    history: List[Dict[str, str]] | None = None,
 ) -> Dict[str, Any]:
-    """Routes grounded Q&A (+ optional image) to Gemini, BharatCode GLM 5.3 Flash, or Deterministic Engine."""
+    """Routes grounded Q&A (+ optional screenshot & conversation history) to Gemini 3.x, BharatCode GLM 5.3 Flash, or Deterministic Engine."""
     q = str(question or "").strip()
     if not q:
         return {"success": False, "error": "Enter a financial question or audit prompt."}
@@ -344,29 +356,36 @@ def ask_financial_copilot(
 
     if prov != "deterministic":
         if (prov in ("gemini", "auto")) and gemini_key:
-            chosen_m = model if model in GEMINI_MODELS else GEMINI_MODELS[0]
-            try:
-                reply = _call_gemini(gemini_key, chosen_m, q, context_json, img_mime, img_b64)
-                if reply:
-                    cites = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply)) | set(base_citations))
-                    return {
-                        "success": True,
-                        "provider_used": "gemini",
-                        "model_used": chosen_m,
-                        "reply": reply,
-                        "citations": cites,
-                        "actions": actions,
-                        "health_score": health,
-                    }
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
-                fallback = _build_deterministic_answer(q, ctx, has_img)
-                fallback["fallback_reason"] = f"Gemini fallback: {exc}"
-                return fallback
+            candidates_order = [model] if (model and not model.startswith(("gemini-2.", "gemini-1.", "glm-", "deepseek"))) else []
+            for m in GEMINI_MODELS:
+                if m not in candidates_order:
+                    candidates_order.append(m)
+            last_exc = None
+            for chosen_m in candidates_order:
+                try:
+                    reply = _call_gemini(gemini_key, chosen_m, q, context_json, img_mime, img_b64, history=history)
+                    if reply:
+                        cites = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply)) | set(base_citations))
+                        return {
+                            "success": True,
+                            "provider_used": "gemini",
+                            "model_used": chosen_m,
+                            "reply": reply,
+                            "citations": cites,
+                            "actions": actions,
+                            "health_score": health,
+                        }
+                except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError) as exc:
+                    last_exc = exc
+                    continue
+            fallback = _build_deterministic_answer(q, ctx, has_img)
+            fallback["fallback_reason"] = f"Gemini fallback: {last_exc}"
+            return fallback
 
         if (prov in ("bharatcode", "auto")) and bc_key:
             chosen_m = model if model in BHARATCODE_MODELS else "glm-5.3-flash"
             try:
-                reply = _call_bharatcode(bc_key, chosen_m, q, context_json, img_mime, img_b64)
+                reply = _call_bharatcode(bc_key, chosen_m, q, context_json, img_mime, img_b64, history=history)
                 if reply:
                     cites = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply)) | set(base_citations))
                     return {

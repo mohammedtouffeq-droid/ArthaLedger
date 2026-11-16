@@ -8,21 +8,24 @@
             { name: 'Cloud Calibration Service', qty: 1, unit_price: 8500, gst_rate: 18 },
         ],
         telemetry: { ledger: null, fraud: null, tax: null, sip: null, emi: null, backtest: null, sme: null },
-        aiSettings: { provider: 'auto', model: 'gemini-2.5-flash', apiKey: '' },
+        aiSettings: { provider: 'auto', model: 'gemini-3.5-flash-lite', apiKey: '' },
+        copilotHistory: [],
         attachedImageData: '',
         attachedImageMime: 'image/png',
         highlightedTxnId: '',
+        serverHealth: { gemini_env_configured: false, bharatcode_env_configured: false },
     };
 
     try {
         STATE.aiSettings.provider = sessionStorage.getItem('artha_provider') || 'auto';
-        STATE.aiSettings.model = sessionStorage.getItem('artha_model') || 'gemini-2.5-flash';
+        const savedModel = sessionStorage.getItem('artha_model') || 'gemini-3.5-flash-lite';
+        STATE.aiSettings.model = savedModel.startsWith('gemini-2.') ? 'gemini-3.5-flash-lite' : savedModel;
         STATE.aiSettings.apiKey = sessionStorage.getItem('artha_api_key') || '';
     } catch (_) {}
 
     const TAB_TITLES = {
         ledger: 'UPI Ledger & Burn Telemetry',
-        fraud: 'UPI Collect, SMS & Screenshot Forensics',
+        fraud: 'UPI Collect, APK & Screenshot Forensics',
         tax: 'Budget 2025 Tax & SIP Wealth Engineering',
         market: 'Live AMFI Mutual Funds & Paper Backtester',
         sme: 'SME GST Invoice & 90-Day Liquidity Stress',
@@ -59,7 +62,7 @@
             const statusDot = document.getElementById('serverLiveStatus');
             if (statusDot) statusDot.textContent = 'Engine Live';
             return parsed !== null ? parsed : txt;
-        } catch (err) {
+        } catch (_) {
             const statusDot = document.getElementById('serverLiveStatus');
             if (statusDot) statusDot.textContent = 'Connection Offline';
             showToast('Backend unreachable. Run python app.py to reconnect.', true);
@@ -95,12 +98,16 @@
     function prepareCanvas(canvasId) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return null;
+        if (!canvas.dataset.logicalHeight) {
+            canvas.dataset.logicalHeight = String(Number(canvas.getAttribute('height')) || 220);
+        }
         const rect = canvas.getBoundingClientRect();
         const width = Math.max(260, Math.floor(rect.width || 520));
-        const height = Number(canvas.getAttribute('height')) || 220;
+        const height = Number(canvas.dataset.logicalHeight) || 220;
         const dpr = Math.min(2, window.devicePixelRatio || 1);
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+        canvas.style.height = `${height}px`;
         const ctx = canvas.getContext('2d');
         ctx.scale(dpr, dpr);
         ctx.fillStyle = cssVar('--bg-subpanel', '#f7f9f6');
@@ -120,7 +127,7 @@
                 if (d < bestDist) { bestDist = d; bestIdx = i; }
             });
             tipEl.textContent = describePt(series[bestIdx], bestIdx);
-            tipEl.style.left = Math.min(rect.width - 180, Math.max(8, xForIdx(bestIdx) - 55)) + 'px';
+            tipEl.style.left = Math.min(rect.width - 185, Math.max(8, xForIdx(bestIdx) - 55)) + 'px';
             tipEl.style.top = '8px';
             tipEl.classList.remove('hidden');
         };
@@ -141,26 +148,29 @@
         const top = items.slice(0, 6);
         const maxVal = Math.max(1, ...top.map((d) => Number(d.amount || 0)));
         const rowH = Math.floor((height - 22) / top.length);
-        const labelW = Math.min(155, Math.floor(width * 0.36));
-        const barMaxW = Math.max(55, width - labelW - 95);
+        const labelW = Math.min(155, Math.max(116, Math.floor(width * 0.41)));
+        const barMaxW = Math.max(46, width - labelW - 76);
+        const maxLabelChars = labelW < 128 ? 15 : 21;
         const textClr = cssVar('--text', '#0f2a24');
         const barClr = cssVar('--emerald', '#0d8a5f');
         const trackClr = cssVar('--border', 'rgba(15,42,36,0.12)');
 
-        ctx.font = '11.5px Inter, sans-serif';
+        ctx.font = '11px Inter, sans-serif';
         top.forEach((d, idx) => {
             const y = 14 + idx * rowH;
             const v = Number(d.amount || 0);
             const bw = Math.max(3, Math.round((v / maxVal) * barMaxW));
+            const rawCat = String(d.category);
+            const shortCat = rawCat.length > maxLabelChars ? rawCat.slice(0, maxLabelChars - 1) + '.' : rawCat;
             ctx.fillStyle = textClr;
-            ctx.fillText(String(d.category).slice(0, 21), 10, y + 14);
+            ctx.fillText(shortCat, 10, y + 14);
             ctx.fillStyle = trackClr;
             ctx.fillRect(labelW, y + 4, barMaxW, 13);
             ctx.fillStyle = barClr;
             ctx.fillRect(labelW, y + 4, bw, 13);
             ctx.font = '11px IBM Plex Mono, monospace';
             ctx.fillText(fmtInr(v), labelW + barMaxW + 8, y + 14);
-            ctx.font = '11.5px Inter, sans-serif';
+            ctx.font = '11px Inter, sans-serif';
         });
 
         if (tip) {
@@ -242,7 +252,6 @@
             ctx.fillStyle = colorB;
             ctx.fillText(labelB, padL + 150, 16);
         }
-
         if (tip && formatTip) attachLineHover(canvas, tip, series, xForIdx, formatTip);
     }
 
@@ -333,8 +342,14 @@
         document.getElementById('kpiNetCashflow').textContent = fmtInr(data.net_cashflow);
         document.getElementById('kpiCashflowMeta').textContent = `In ${fmtInr(data.total_income)} | Out ${fmtInr(data.total_spent)} (${data.savings_rate_pct}% saved)`;
         document.getElementById('ledgerSummaryBanner').textContent =
-            `Parsed ${data.transaction_count} transactions. Total out: ${fmtInr(data.total_spent)} vs Cap: ${fmtInr(data.budget_target)}.`;
+            `Parsed ${data.transaction_count} transactions. Spend: ${fmtInr(data.total_spent)} vs Cap: ${fmtInr(data.budget_target)}.`;
         document.getElementById('ledgerSubAnnualBadge').textContent = `Subs: ${fmtInr(data.subscription_annual_runrate || 0)}/yr`;
+
+        const utilPct = budget > 0 ? Math.min(100, Math.round((data.total_spent / budget) * 100)) : 0;
+        document.getElementById('budgetUtilLabel').textContent = `${utilPct}% (${fmtInr(data.total_spent)} / ${fmtInr(budget)})`;
+        const utilBar = document.getElementById('budgetUtilBar');
+        utilBar.style.width = `${utilPct}%`;
+        utilBar.style.backgroundColor = utilPct >= 95 ? cssVar('--crimson', '#c82333') : (utilPct >= 75 ? cssVar('--amber', '#c97a08') : cssVar('--emerald', '#0d8a5f'));
 
         drawBarChart('ledgerChart', 'ledgerChartTip', data.categories);
         const anomList = document.getElementById('ledgerAnomaliesList');
@@ -383,12 +398,8 @@
         (data.anatomy || []).forEach((cell) => {
             const div = document.createElement('div');
             div.className = 'anatomy-cell';
-            const k = document.createElement('div');
-            k.className = 'anatomy-k';
-            k.textContent = cell.field;
-            const v = document.createElement('div');
-            v.className = 'anatomy-v';
-            v.textContent = cell.value;
+            const k = document.createElement('div'); k.className = 'anatomy-k'; k.textContent = cell.field;
+            const v = document.createElement('div'); v.className = 'anatomy-v'; v.textContent = cell.value;
             div.append(k, v);
             anat.appendChild(div);
         });
@@ -399,7 +410,7 @@
         if (!flags.length) {
             const li = document.createElement('li');
             li.className = 'sev-SAFE';
-            li.textContent = 'Zero heuristic phishing URLs or collect-PIN triggers found.';
+            li.textContent = 'Zero heuristic phishing URLs, APK lures, or collect-PIN triggers found.';
             list.appendChild(li);
         } else {
             flags.forEach((f) => {
@@ -434,11 +445,20 @@
             tenure_months: 120,
             extra_monthly_prepay: Number(document.getElementById('emiExtraInput').value || 0),
         };
+        const goalPayload = {
+            target_today_inr: Number(document.getElementById('goalTargetInput').value || 1000000),
+            annual_return_pct: sipPayload.annual_return_pct,
+            years: sipPayload.years,
+            inflation_pct: 6,
+            gain_amount: Number(document.getElementById('capGainInput').value || 0),
+            holding_months: Number(document.getElementById('capMonthsInput').value || 18),
+        };
 
-        const [taxData, sipData, emiData] = await Promise.all([
+        const [taxData, sipData, emiData, goalData] = await Promise.all([
             postJson('/api/tax/compare', taxPayload),
             postJson('/api/wealth/sip', sipPayload),
             postJson('/api/wealth/emi', emiPayload),
+            postJson('/api/wealth/goal', goalPayload),
         ]);
         if (!taxData || !sipData || !emiData) return;
 
@@ -464,19 +484,34 @@
         ].forEach((c) => {
             const d = document.createElement('div');
             d.className = 'mini-stat';
-            const l = document.createElement('div');
-            l.className = 'mini-stat-label';
-            l.textContent = c.l;
-            const v = document.createElement('div');
-            v.className = 'mini-stat-val';
-            v.textContent = c.v;
+            const l = document.createElement('div'); l.className = 'mini-stat-label'; l.textContent = c.l;
+            const v = document.createElement('div'); v.className = 'mini-stat-val'; v.textContent = c.v;
             d.append(l, v);
             cards.appendChild(d);
         });
 
+        const slabBody = document.getElementById('taxSlabTableBody');
+        slabBody.replaceChildren();
+        (taxData.new_regime.slabs || []).forEach((s) => {
+            const tr = document.createElement('tr');
+            const c1 = document.createElement('td'); c1.textContent = s.slab;
+            const c2 = document.createElement('td'); c2.className = 'num'; c2.textContent = `${s.rate_pct}%`;
+            const c3 = document.createElement('td'); c3.className = 'num'; c3.textContent = fmtInr(s.taxable_in_slab);
+            const c4 = document.createElement('td'); c4.className = 'num'; c4.textContent = fmtInr(s.tax);
+            tr.append(c1, c2, c3, c4);
+            slabBody.appendChild(tr);
+        });
+
+        if (goalData && goalData.success) {
+            const g = goalData.goal;
+            const cg = goalData.capital_gains_tax;
+            document.getElementById('goalAndCgSummary').textContent =
+                `Goal Planner: Today Rs.${Math.round(g.target_today_inr).toLocaleString('en-IN')} inflates to ${fmtInr(g.inflation_adjusted_target)} in ${g.years}Y -> Required SIP: ${fmtInr(g.required_monthly_sip)}/mo. Equity Tax (${cg.regime_label}): Est Tax ${fmtInr(cg.estimated_tax_with_cess)}, Post-Tax Profit ${fmtInr(cg.post_tax_gain)}.`;
+        }
+
         redrawTabCharts('tax');
         document.getElementById('emiSavingsSummary').textContent =
-            `EMI Schedule: Base EMI ${fmtInr(emiData.monthly_emi)}/mo. Extra ${fmtInr(emiPayload.extra_monthly_prepay)}/mo cuts tenure by ${emiData.months_saved} months and saves ${fmtInr(emiData.interest_saved)} interest.`;
+            `EMI Schedule: Base EMI ${fmtInr(emiData.monthly_emi)}/mo. Adding ${fmtInr(emiPayload.extra_monthly_prepay)}/mo cuts tenure by ${emiData.months_saved} months and saves ${fmtInr(emiData.interest_saved)} interest.`;
         refreshHealthScore();
     }
 
@@ -486,19 +521,19 @@
         if (!res || !res.funds) return;
         const sel = document.getElementById('amfiSchemeSelect');
         sel.replaceChildren();
-        const def = document.createElement('option');
-        def.value = '';
-        def.textContent = '-- Fallback: Built-in Historical Index Proxy --';
-        sel.appendChild(def);
         res.funds.forEach((f) => {
             const opt = document.createElement('option');
             opt.value = f.schemeCode;
             opt.textContent = `${f.schemeName} (${f.schemeCode})`;
             sel.appendChild(opt);
         });
+        const def = document.createElement('option');
+        def.value = '';
+        def.textContent = '-- Fallback: Built-in Historical Index Proxy --';
+        sel.appendChild(def);
         if (res.funds.length) {
             sel.value = res.funds[0].schemeCode;
-            showToast(`Loaded ${res.funds.length} AMFI schemes (${res.source}).`, false);
+            showToast(`Loaded ${res.funds.length} AMFI funds (${res.source}).`, false);
             await runBacktest();
         }
     }
@@ -527,16 +562,12 @@
             { l: 'RETURN VS B&H', v: `${data.total_return_pct}% vs ${data.benchmark_return_pct}%` },
             { l: 'SHARPE / VOL', v: `${data.sharpe_ratio} / ${data.annualized_volatility_pct}%` },
             { l: 'MAX DRAWDOWN', v: `-${data.max_drawdown_pct}%` },
-            { l: 'SOURCE MODE', v: data.data_source === 'live_amfi_public_nav' ? 'LIVE AMFI NAV' : 'PROXY SERIES' },
+            { l: 'DATA SOURCE', v: srcBadge },
         ].forEach((m) => {
             const d = document.createElement('div');
             d.className = 'mini-stat';
-            const l = document.createElement('div');
-            l.className = 'mini-stat-label';
-            l.textContent = m.l;
-            const v = document.createElement('div');
-            v.className = 'mini-stat-val';
-            v.textContent = m.v;
+            const l = document.createElement('div'); l.className = 'mini-stat-label'; l.textContent = m.l;
+            const v = document.createElement('div'); v.className = 'mini-stat-val'; v.textContent = m.v;
             d.append(l, v);
             row.appendChild(d);
         });
@@ -568,37 +599,28 @@
             row.className = 'sme-item-row';
 
             const nameIn = document.createElement('input');
-            nameIn.type = 'text';
-            nameIn.value = item.name;
-            nameIn.placeholder = 'Item description';
+            nameIn.type = 'text'; nameIn.value = item.name; nameIn.placeholder = 'Item description';
             nameIn.addEventListener('input', (e) => { STATE.smeItems[idx].name = e.target.value; });
 
             const qtyIn = document.createElement('input');
-            qtyIn.type = 'number';
-            qtyIn.min = '1';
-            qtyIn.value = item.qty;
+            qtyIn.type = 'number'; qtyIn.min = '1'; qtyIn.value = item.qty;
             qtyIn.addEventListener('input', (e) => { STATE.smeItems[idx].qty = Number(e.target.value || 1); });
 
             const priceIn = document.createElement('input');
-            priceIn.type = 'number';
-            priceIn.min = '0';
-            priceIn.value = item.unit_price;
+            priceIn.type = 'number'; priceIn.min = '0'; priceIn.value = item.unit_price;
             priceIn.addEventListener('input', (e) => { STATE.smeItems[idx].unit_price = Number(e.target.value || 0); });
 
             const gstSel = document.createElement('select');
             [0, 5, 12, 18, 28].forEach((r) => {
                 const o = document.createElement('option');
-                o.value = String(r);
-                o.textContent = `${r}% GST`;
+                o.value = String(r); o.textContent = `${r}% GST`;
                 if (Number(item.gst_rate) === r) o.selected = true;
                 gstSel.appendChild(o);
             });
             gstSel.addEventListener('change', (e) => { STATE.smeItems[idx].gst_rate = Number(e.target.value); });
 
             const delBtn = document.createElement('button');
-            delBtn.type = 'button';
-            delBtn.className = 'btn btn-outline';
-            delBtn.textContent = 'Remove';
+            delBtn.type = 'button'; delBtn.className = 'btn btn-outline'; delBtn.textContent = 'Remove';
             delBtn.addEventListener('click', () => {
                 if (STATE.smeItems.length > 1) {
                     STATE.smeItems.splice(idx, 1);
@@ -695,19 +717,40 @@
         showToast(`Applied: ${act.label}`, false);
     }
 
+    function appendCopilotBubble(role, text, metaLabel) {
+        const out = document.getElementById('copilotOutput');
+        const box = document.createElement('div');
+        box.className = 'chat-msg ' + (role === 'user' ? 'msg-user' : 'msg-assistant');
+        if (metaLabel) {
+            const meta = document.createElement('div');
+            meta.className = 'msg-meta';
+            meta.textContent = metaLabel;
+            box.appendChild(meta);
+        }
+        const bodySpan = document.createElement('div');
+        bodySpan.textContent = text;
+        box.appendChild(bodySpan);
+        out.appendChild(box);
+        out.scrollTop = out.scrollHeight;
+        return box;
+    }
+
     async function askCopilot(questionText) {
         const q = (questionText || '').trim();
         if (!q) return;
         const btn = document.getElementById('btnAskCopilot');
-        const out = document.getElementById('copilotOutput');
+        const inputEl = document.getElementById('copilotQuestionInput');
         btn.disabled = true;
-        out.textContent = 'Synthesizing telemetry and citations...';
+        inputEl.value = '';
+        appendCopilotBubble('user', q);
+        const pendingEl = appendCopilotBubble('assistant', 'Synthesizing telemetry and live citations...', 'COMPUTING');
 
         const data = await postJson(
             '/api/copilot/ask',
             {
                 question: q,
                 context: STATE.telemetry,
+                history: STATE.copilotHistory.slice(-6),
                 provider: STATE.aiSettings.provider,
                 model: STATE.aiSettings.model,
                 image_data: STATE.attachedImageData,
@@ -716,13 +759,18 @@
             STATE.aiSettings.apiKey ? { 'X-User-AI-Key': STATE.aiSettings.apiKey } : {}
         );
         btn.disabled = false;
+        pendingEl.remove();
+
         if (!data) {
-            out.textContent = 'Request failed. Check server status.';
+            appendCopilotBubble('assistant', 'Request failed. Check server status.', 'ERROR');
             return;
         }
-        document.getElementById('copilotProviderStatus').textContent =
-            `Engine: ${data.provider_used || 'deterministic'} (${data.model_used || 'local'})`;
-        out.textContent = data.reply || data.error || 'No response received.';
+        const modelTag = `${data.provider_used || 'deterministic'} (${data.model_used || 'local'})`;
+        document.getElementById('copilotProviderStatus').textContent = `Engine: ${modelTag}`;
+        appendCopilotBubble('assistant', data.reply || data.error || 'No response.', modelTag.toUpperCase());
+
+        STATE.copilotHistory.push({ role: 'user', content: q });
+        if (data.reply) STATE.copilotHistory.push({ role: 'assistant', content: data.reply });
 
         const citeBar = document.getElementById('copilotCitationsBar');
         citeBar.replaceChildren();
@@ -730,9 +778,7 @@
         citeBar.classList.toggle('hidden', !cites.length);
         cites.forEach((c) => {
             const p = document.createElement('button');
-            p.type = 'button';
-            p.className = 'cite-pill';
-            p.textContent = `[${c}]`;
+            p.type = 'button'; p.className = 'cite-pill'; p.textContent = `[${c}]`;
             p.addEventListener('click', () => jumpToCitation(c));
             citeBar.appendChild(p);
         });
@@ -743,9 +789,7 @@
         actBar.classList.toggle('hidden', !acts.length);
         acts.forEach((act) => {
             const ab = document.createElement('button');
-            ab.type = 'button';
-            ab.className = 'action-apply-btn';
-            ab.textContent = act.label;
+            ab.type = 'button'; ab.className = 'action-apply-btn'; ab.textContent = act.label;
             ab.addEventListener('click', () => applyCopilotAction(act));
             actBar.appendChild(ab);
         });
@@ -806,7 +850,65 @@
         renderSmeItemRows();
 
         await Promise.all([runLedgerAnalysis(), runFraudAudit(), runTaxAndWealth(), runBacktest(), runSmeAnalysis()]);
-        showToast(`Scenario synced: ${p.name}`, false);
+        showToast(`Loaded scenario: ${p.name}`, false);
+    }
+
+    async function checkServerHealth() {
+        const h = await apiRequest('/api/health', { method: 'GET' });
+        if (!h || !h.ai_providers) return;
+        STATE.serverHealth = h.ai_providers;
+        const note = document.getElementById('serverEnvStatusNote');
+        const statusEl = document.getElementById('copilotProviderStatus');
+        if (h.ai_providers.gemini_env_configured) {
+            if (statusEl) statusEl.textContent = 'Engine: Gemini 3.5 Live Ready';
+            if (note) note.textContent = 'Server GEMINI_API_KEY detected cleanly via local .env (zero secrets in GitHub). Requests use live Gemini 3.5 Flash Lite + deterministic citations.';
+        } else if (h.ai_providers.bharatcode_env_configured) {
+            if (statusEl) statusEl.textContent = 'Engine: BharatCode GLM 5.3 Live';
+            if (note) note.textContent = 'Server BHARATCODE_API_KEY detected via local .env.';
+        } else {
+            if (statusEl) statusEl.textContent = 'Engine: Deterministic Cited Mode';
+            if (note) note.textContent = 'All math computes locally. Enter an optional Gemini or BharatCode GLM 5.3 Flash key below (sessionStorage only) for live LLM & screenshot vision.';
+        }
+    }
+
+    function initScrollMotion() {
+        const bar = document.getElementById('scrollProgressBar');
+        const grid = document.getElementById('welcomeGridLayer');
+        const charEl = document.getElementById('welcomeCharacterLayer');
+        let ticking = false;
+
+        function onScrollFrame() {
+            ticking = false;
+            const sy = window.scrollY || 0;
+            const docH = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+            if (bar) bar.style.width = `${Math.min(100, Math.round((sy / docH) * 100))}%`;
+            if (grid) grid.style.transform = `translate3d(0, ${Math.round(sy * 0.14)}px, 0)`;
+            if (charEl) charEl.style.transform = `translate3d(0, ${Math.round(-Math.min(14, sy * 0.06))}px, 0)`;
+        }
+
+        window.addEventListener('scroll', () => {
+            if (!ticking) {
+                ticking = true;
+                requestAnimationFrame(onScrollFrame);
+            }
+        }, { passive: true });
+
+        if ('IntersectionObserver' in window) {
+            const els = document.querySelectorAll('.scroll-reveal');
+            const obs = new IntersectionObserver((entries) => {
+                entries.forEach((en) => {
+                    if (en.isIntersecting) {
+                        en.target.classList.remove('is-pre-reveal');
+                        obs.unobserve(en.target);
+                    }
+                });
+            }, { threshold: 0.05 });
+            els.forEach((el) => {
+                const r = el.getBoundingClientRect();
+                if (r.top > window.innerHeight) el.classList.add('is-pre-reveal');
+                obs.observe(el);
+            });
+        }
     }
 
     function bindEvents() {
@@ -815,6 +917,15 @@
         });
         document.getElementById('btnLoadPersona').addEventListener('click', () => {
             loadPersona(document.getElementById('personaSelect').value);
+        });
+        document.getElementById('btnStartGuidedCheck').addEventListener('click', async () => {
+            await loadPersona(document.getElementById('personaSelect').value);
+            await askCopilot('Full Money Audit: summarize top savings, tax breakeven, and fraud checks.');
+        });
+        document.getElementById('btnToggleWelcome').addEventListener('click', () => {
+            const band = document.getElementById('welcomeGuideBand');
+            const collapsed = band.classList.toggle('collapsed');
+            document.getElementById('btnToggleWelcome').textContent = collapsed ? 'Expand Welcome' : 'Collapse Intro';
         });
         document.getElementById('btnPrintDossier').addEventListener('click', () => window.print());
         document.getElementById('btnToggleTheme').addEventListener('click', () => {
@@ -873,11 +984,8 @@
             const csvText = await res.text();
             const url = URL.createObjectURL(new Blob([csvText], { type: 'text/csv;charset=utf-8' }));
             const a = document.createElement('a');
-            a.href = url;
-            a.download = 'arthaledger_statement.csv';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            a.href = url; a.download = 'arthaledger_statement.csv';
+            document.body.appendChild(a); a.click(); a.remove();
             URL.revokeObjectURL(url);
         });
 
@@ -890,8 +998,10 @@
                     input.value = 'URGENT: Your demo bank KYC is suspended within 24 hours. Update immediately via http://bit.ly/demo-kyc-check and enter UPI PIN to avoid freeze.';
                 } else if (mode === 'collect') {
                     input.value = 'upi://pay?pa=cashback-helpdesk@okexample&pn=Lottery%20Refund&am=19999&mode=02&tn=Enter%20UPI%20PIN%20to%20claim%20refund';
+                } else if (mode === 'apk') {
+                    input.value = 'Notice: Traffic e-Challan pending Rs.2,500. Download eChallan_RTO_Verify.apk or call bank support helpline 9876543210 immediately.';
                 } else if (mode === 'anydesk') {
-                    input.value = 'Install AnyDesk remote access support to verify your Rs.18,000 OLX army buyer advance payment and approve collect.';
+                    input.value = 'Install AnyDesk remote access support to verify your Rs.18,000 OLX advance payment and approve collect.';
                 } else {
                     input.value = 'upi://pay?pa=metro.transit@okaxis&pn=City%20Metro%20Rail&am=120&tn=Monthly%20Smartcard%20Topup';
                 }
@@ -946,14 +1056,20 @@
 
         document.querySelectorAll('[data-copilot-q]').forEach((btn) => {
             btn.addEventListener('click', () => {
-                const q = btn.dataset.copilotQ;
-                document.getElementById('copilotQuestionInput').value = q;
-                askCopilot(q);
+                askCopilot(btn.dataset.copilotQ);
             });
         });
         document.getElementById('copilotForm').addEventListener('submit', (ev) => {
             ev.preventDefault();
             askCopilot(document.getElementById('copilotQuestionInput').value);
+        });
+        document.getElementById('btnClearCopilotChat').addEventListener('click', () => {
+            STATE.copilotHistory = [];
+            const out = document.getElementById('copilotOutput');
+            out.replaceChildren();
+            appendCopilotBubble('assistant', 'Conversation cleared. Ready for next cited query.');
+            document.getElementById('copilotCitationsBar').classList.add('hidden');
+            document.getElementById('copilotActionsBar').classList.add('hidden');
         });
         document.getElementById('copilotImageInput').addEventListener('change', (ev) => {
             const file = ev.target.files && ev.target.files[0];
@@ -1015,6 +1131,8 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         bindEvents();
+        initScrollMotion();
+        checkServerHealth();
         loadPersona('student_budget');
     });
 })();

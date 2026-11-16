@@ -1,4 +1,4 @@
-"""Deterministic NPCI UPI URI, phishing SMS, and payment fraud analyzer."""
+"""Deterministic NPCI UPI URI, phishing SMS, APK malware, homoglyph, and payment fraud forensics."""
 from __future__ import annotations
 
 import re
@@ -7,6 +7,9 @@ from typing import Any, Dict, List
 
 UPI_URI_RE = re.compile(r"upi://pay\?[^\s\"'<>]+", re.IGNORECASE)
 URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+PHONE_RE = re.compile(r"(?:\+?91[-.\s]?)?[6-9]\d{9}\b")
+APK_RE = re.compile(r"\b[\w.-]+\.apk\b", re.IGNORECASE)
+ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\ufeff]")
 
 SHORTENER_DOMAINS = frozenset({
     "bit.ly", "tinyurl.com", "t.co", "rb.gy", "is.gd", "shorturl.at", "cutt.ly", "goo.gl"
@@ -28,6 +31,8 @@ URGENCY_TRIGGERS: List[tuple[str, int, str]] = [
     ("urgent", 12, "Artificial urgency deadline pressure"),
     ("within 24 hours", 14, "Countdown coercion pattern"),
     ("electricity disconnect", 24, "Fake utility bill disconnection scam"),
+    ("echallan", 24, "Fake traffic e-Challan APK / phishing bait"),
+    ("e-challan", 24, "Fake traffic e-Challan APK / phishing bait"),
 ]
 
 IMPERSONATION_HANDLES = (
@@ -41,7 +46,7 @@ def _add_flag(flags: List[Dict[str, Any]], code: str, severity: str, weight: int
 
 
 def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[str, Any]:
-    """Audits SMS alerts, payment links, or upi://pay URIs and returns cited fraud findings and structural anatomy."""
+    """Audits SMS alerts, links, APK lures, or upi://pay URIs and returns cited fraud findings and structural anatomy."""
     raw = str(payload_text or "").strip()
     ctx = str(claimed_context or "").strip()
     combined = f"{raw}\n{ctx}".strip()
@@ -52,6 +57,25 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
 
     flags: List[Dict[str, Any]] = []
     score = 0
+
+    if ZERO_WIDTH_RE.search(combined) or any(0x0400 <= ord(ch) <= 0x04FF for ch in combined):
+        score += _add_flag(
+            flags,
+            "FRAUD-HOMO-01",
+            "CRITICAL",
+            36,
+            "Unicode homoglyph or zero-width stealth characters detected (IDN/brand spoofing evasion)",
+        )
+
+    apks = APK_RE.findall(combined)
+    if apks:
+        score += _add_flag(
+            flags,
+            "FRAUD-APK-01",
+            "CRITICAL",
+            45,
+            f"Unsolicited Android sideload installer ({apks[0]}) detected - high risk of SMS/OTP stealer trojan",
+        )
 
     upi_matches = UPI_URI_RE.findall(raw)
     parsed_upi: Dict[str, Any] = {}
@@ -129,6 +153,16 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
         if url.lower().startswith("http://"):
             score += _add_flag(flags, f"FRAUD-TLS-{idx:02d}", "MEDIUM", 10, f"Unencrypted HTTP link ({host})")
 
+    phones = PHONE_RE.findall(combined)
+    if phones and any(k in lower for k in ("customer care", "helpline", "kyc", "support", "callback", "blocked")):
+        score += _add_flag(
+            flags,
+            "FRAUD-TEL-01",
+            "HIGH",
+            22,
+            f"Personal 10-digit mobile number ({phones[0]}) impersonating official bank customer care",
+        )
+
     hit_num = 1
     for term, weight, detail in URGENCY_TRIGGERS:
         if term in lower:
@@ -139,20 +173,21 @@ def analyze_payment_risk(payload_text: str, claimed_context: str = "") -> Dict[s
     capped_score = min(100, score)
     if capped_score >= 55:
         verdict = "HIGH_RISK_SCAM"
-        action = "DO NOT APPROVE OR CLICK. Decline the UPI collect request and report the sender via National Cybercrime Helpline 1930 / chakshu.sancharsaathi.gov.in. Entering a UPI PIN always authorizes an outbound debit."
+        action = "DO NOT APPROVE, INSTALL OR CLICK. Decline any UPI collect request and report the sender via National Cybercrime Helpline 1930 / chakshu.sancharsaathi.gov.in. Entering a UPI PIN always authorizes an outbound debit."
     elif capped_score >= 25:
         verdict = "CAUTION_VERIFY"
         action = "Do not act from links in SMS/WhatsApp. Independently verify inside your official bank/payment app before transferring or clicking."
     else:
         verdict = "LOW_RISK"
-        action = "No obvious phishing URL or PIN-lure markers detected. Still confirm the verified merchant name in your UPI app before entering PIN."
+        action = "No obvious phishing URL, APK lure, or PIN-trap markers detected. Confirm the verified payee name before approving."
 
+    channel = "Malicious APK Lure" if apks else ("UPI Intent URI" if parsed_upi else ("SMS + Web Link" if urls else "Plain Text Alert"))
     anatomy = [
-        {"field": "Channel Type", "value": "UPI Intent URI" if parsed_upi else ("SMS + Web Link" if urls else "Plain Text Alert")},
+        {"field": "Channel / Threat Vector", "value": channel},
         {"field": "Extracted VPA", "value": parsed_upi.get("vpa") or "None present"},
-        {"field": "Display Payee", "value": parsed_upi.get("payee_name") or "None present"},
-        {"field": "Requested Debit", "value": f"Rs.{parsed_upi['amount']}" if parsed_upi.get("amount") else "None / Unspecified"},
-        {"field": "Hosts / Domains", "value": ", ".join(detected_hosts) if detected_hosts else "No external web hosts"},
+        {"field": "Display Payee / Requested", "value": f"{parsed_upi.get('payee_name') or '--'} | Rs.{parsed_upi['amount']}" if parsed_upi.get("amount") else (parsed_upi.get("payee_name") or "None present")},
+        {"field": "Hosts / Domains", "value": ", ".join(detected_hosts) if detected_hosts else "No web hosts"},
+        {"field": "Phones / APK IOCs", "value": ", ".join(apks + phones) if (apks or phones) else "None detected"},
         {"field": "PIN-For-Receipt Trap", "value": "DETECTED" if any("PIN" in f["detail"] for f in flags) else "Not detected"},
     ]
 

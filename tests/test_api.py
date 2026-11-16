@@ -136,6 +136,38 @@ class TestArthaLedgerHttpApi(unittest.TestCase):
         self.assertTrue(mf["success"])
         self.assertGreaterEqual(len(mf["funds"]), 4)
 
+    def test_v3_wealth_goal_ltcg_and_multiturn_copilot(self):
+        g_code, goal_res = self._post("/api/wealth/goal", {
+            "target_today_inr": 1000000,
+            "annual_return_pct": 12.0,
+            "years": 10,
+            "inflation_pct": 6.0,
+            "gain_amount": 225000,
+            "holding_months": 18,
+        })
+        self.assertEqual(g_code, 200)
+        self.assertTrue(goal_res["success"])
+        self.assertGreater(goal_res["goal"]["required_monthly_sip"], 5000)
+        self.assertGreater(goal_res["goal"]["inflation_adjusted_target"], 1500000)
+        self.assertEqual(goal_res["capital_gains_tax"]["exempt_amount"], 125000.0)
+        self.assertEqual(goal_res["capital_gains_tax"]["estimated_tax_with_cess"], 13000.0)
+
+        c_code, copilot = self._post("/api/copilot/ask", {
+            "question": "What should I fix first?",
+            "provider": "deterministic",
+            "history": [
+                {"role": "user", "text": "Audit my tax"},
+                {"role": "assistant", "text": "New Regime saves Rs.0 under Rs.12.75L."},
+            ],
+            "context": {
+                "ledger": {"total_income": 18500, "total_spent": 10996, "net_surplus": 7504},
+                "fraud": {"verdict": "HIGH_RISK_SCAM", "risk_score": 100},
+            },
+        })
+        self.assertEqual(c_code, 200)
+        self.assertTrue(copilot["success"])
+        self.assertIn("FRAUD-AUDIT", copilot["citations"])
+
 
 if __name__ == "__main__":
     unittest.main()

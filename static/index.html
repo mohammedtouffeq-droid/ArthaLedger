@@ -11,6 +11,9 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+    <div id="scrollProgressTrack" class="scroll-progress-track" aria-hidden="true">
+        <div id="scrollProgressBar" class="scroll-progress-bar"></div>
+    </div>
     <div id="statusToast" class="status-toast hidden" role="status" aria-live="polite"></div>
 
     <div class="app-shell">
@@ -73,10 +76,10 @@
             <div class="rail-footer">
                 <div class="telemetry-pill">
                     <span class="status-dot"></span>
-                    <span id="serverLiveStatus">Engine Ready</span>
+                    <span id="serverLiveStatus">Engine Live</span>
                 </div>
                 <p class="compliance-note">
-                    Non-advisory telemetry workbench. Public AMFI NAVs &amp; synthetic personas. Zero real credentials.
+                    Non-advisory computation engine. Live public AMFI NAVs &amp; synthetic scenarios. Zero real credentials.
                 </p>
             </div>
         </aside>
@@ -107,7 +110,48 @@
 
             <div class="workspace-grid">
                 <div class="workspace-main">
-                    <section class="kpi-strip" aria-label="Unified Financial Summary">
+                    <!-- EDITORIAL WELCOME GUIDE BAND (HANDCRAFTED ARCHITECTURAL SVG COMPANION + SCROLL PARALLAX) -->
+                    <section class="welcome-band scroll-reveal" id="welcomeGuideBand" aria-label="Artha Desk Introduction">
+                        <div class="welcome-grid-bg" id="welcomeGridLayer" aria-hidden="true"></div>
+                        <div class="welcome-illustration" id="welcomeCharacterLayer" aria-hidden="true">
+                            <svg viewBox="0 0 180 156" width="152" height="132" fill="none">
+                                <!-- Ruled desk baseplate -->
+                                <rect x="14" y="128" width="152" height="8" rx="4" fill="#0f2a24" opacity="0.14"/>
+                                <!-- Architectural Student Analyst Figure -->
+                                <path d="M52 128C52 102 68 88 90 88C112 88 128 102 128 128" fill="#0f2a24"/>
+                                <path d="M64 128V105L90 116L116 105V128" stroke="#c97a08" stroke-width="2"/>
+                                <!-- Neck & Collar -->
+                                <rect x="82" y="74" width="16" height="16" rx="6" fill="#e6be9a"/>
+                                <path d="M74 88L90 98L106 88" stroke="#f3f5f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <!-- Head & Glasses -->
+                                <circle cx="90" cy="54" r="22" fill="#ecc7a6" stroke="#0f2a24" stroke-width="2"/>
+                                <path d="M68 49C69 33 82 26 95 28C107 30 113 39 112 50C106 42 84 40 68 49Z" fill="#0f2a24"/>
+                                <rect x="75" y="49" width="12" height="8" rx="3" stroke="#0f2a24" stroke-width="1.8" fill="#ffffff" fill-opacity="0.35"/>
+                                <rect x="93" y="49" width="12" height="8" rx="3" stroke="#0f2a24" stroke-width="1.8" fill="#ffffff" fill-opacity="0.35"/>
+                                <line x1="87" y1="53" x2="93" y2="53" stroke="#0f2a24" stroke-width="1.8"/>
+                                <path d="M84 65C87 68 93 68 96 65" stroke="#0f2a24" stroke-width="1.8" stroke-linecap="round"/>
+                                <!-- Raised Greeting Hand + Ledger Tablet -->
+                                <path d="M126 96L146 72" stroke="#0f2a24" stroke-width="7" stroke-linecap="round"/>
+                                <circle cx="148" cy="68" r="6" fill="#ecc7a6" stroke="#0f2a24" stroke-width="1.6"/>
+                                <rect x="28" y="96" width="44" height="34" rx="4" fill="#ffffff" stroke="#0f2a24" stroke-width="2"/>
+                                <path d="M35 117L43 111L50 115L63 103" stroke="#0d8a5f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <circle cx="63" cy="103" r="2.5" fill="#c97a08"/>
+                            </svg>
+                        </div>
+                        <div class="welcome-copy">
+                            <div class="welcome-eyebrow">VERIFIED MONEY AUDIT • ZERO BLACK-BOX MATH</div>
+                            <h2>Meet Artha: Verified Indian Finance Math, Paired With Cited AI Reasoning</h2>
+                            <p>
+                                Every INR tax calculation, subscription scan, UPI scam flag, GST invoice offset, and AMFI Mutual Fund backtest computes deterministically first — then Gemini cites exact telemetry codes in real time.
+                            </p>
+                            <div class="btn-row mt-8">
+                                <button type="button" class="btn btn-primary" id="btnStartGuidedCheck">Run Live 5-Module Audit</button>
+                                <button type="button" class="btn btn-outline" id="btnToggleWelcome">Collapse Intro</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="kpi-strip scroll-reveal" aria-label="Unified Financial Summary">
                         <article class="kpi-card">
                             <div class="kpi-label">MONTHLY SURPLUS</div>
                             <div class="kpi-value" id="kpiNetCashflow">Rs.0</div>
@@ -126,19 +170,19 @@
                         <article class="kpi-card">
                             <div class="kpi-label">PAPER RETURN / SHARPE</div>
                             <div class="kpi-value" id="kpiBacktestReturn">0.0%</div>
-                            <div class="kpi-meta" id="kpiBacktestMeta">Historical / AMFI NAV only</div>
+                            <div class="kpi-meta" id="kpiBacktestMeta">Live AMFI / Historical NAV</div>
                         </article>
                     </section>
 
                     <main class="workspace-views">
                         <!-- 01. UPI LEDGER -->
                         <section class="view-panel active" id="view-ledger">
-                            <div class="grid-2">
+                            <div class="grid-2 scroll-reveal">
                                 <div class="panel">
                                     <div class="panel-header">
                                         <div>
                                             <h2>UPI, SMS &amp; Bank CSV Ingestion</h2>
-                                            <p>Upload a synthetic bank CSV or add/edit SMS entries to surface hidden subscriptions and outlier burn.</p>
+                                            <p>Import bank-statement CSV files or add UPI SMS entries to audit recurring leaks and outlier debits.</p>
                                         </div>
                                         <div class="btn-row">
                                             <label class="file-btn" for="ledgerCsvUpload">
@@ -151,7 +195,7 @@
                                     </div>
 
                                     <div class="quick-add-bar">
-                                        <input id="quickTxMerchant" type="text" placeholder="Merchant (e.g. Swiggy, Metro)">
+                                        <input id="quickTxMerchant" type="text" placeholder="Merchant name">
                                         <input id="quickTxAmount" type="number" min="1" placeholder="Amount (INR)">
                                         <select id="quickTxType" aria-label="Transaction Type">
                                             <option value="debit">Debit</option>
@@ -160,19 +204,27 @@
                                         <button type="button" class="btn btn-secondary" id="btnQuickAddTx">Add Entry</button>
                                     </div>
 
+                                    <div class="budget-meter-card">
+                                        <div class="risk-meter-head">
+                                            <span>Monthly Budget Utilization</span>
+                                            <strong class="mono" id="budgetUtilLabel">0%</strong>
+                                        </div>
+                                        <div class="risk-track"><div class="risk-fill" id="budgetUtilBar"></div></div>
+                                    </div>
+
                                     <div class="form-row mt-8">
                                         <label for="monthlyBudgetInput">Monthly Spend Ceiling (INR)</label>
                                         <input id="monthlyBudgetInput" type="number" min="0" value="15000">
                                     </div>
                                     <label class="field-label" for="smsLedgerInput">Normalized Transaction Feed</label>
-                                    <textarea id="smsLedgerInput" rows="8" spellcheck="false"></textarea>
+                                    <textarea id="smsLedgerInput" rows="7" spellcheck="false"></textarea>
                                 </div>
 
                                 <div class="panel">
                                     <div class="panel-header">
                                         <div>
                                             <h2>Category Allocation &amp; Outlier Signals</h2>
-                                            <p id="ledgerSummaryBanner">Click or hover bars to inspect exact INR allocation.</p>
+                                            <p id="ledgerSummaryBanner">Hover bars for category share and INR totals.</p>
                                         </div>
                                         <span class="mono-badge" id="ledgerSubAnnualBadge">Subs: Rs.0/yr</span>
                                     </div>
@@ -187,11 +239,11 @@
                                 </div>
                             </div>
 
-                            <div class="panel mt-16">
+                            <div class="panel mt-16 scroll-reveal">
                                 <div class="panel-header">
                                     <div>
                                         <h2>Normalized Ledger Register</h2>
-                                        <p>Live search, filter by direction, or jump here from Copilot citations.</p>
+                                        <p>Search counterparties, filter credits/debits, or inspect Copilot citations.</p>
                                     </div>
                                     <div class="table-controls">
                                         <input id="ledgerSearchInput" type="search" placeholder="Filter merchant or category...">
@@ -223,25 +275,26 @@
 
                         <!-- 02. FRAUD SHIELD -->
                         <section class="view-panel" id="view-fraud">
-                            <div class="grid-2">
+                            <div class="grid-2 scroll-reveal">
                                 <div class="panel">
                                     <div class="panel-header">
                                         <div>
-                                            <h2>UPI Collect, SMS &amp; Screenshot Forensics</h2>
-                                            <p>Dissect malicious payment links, collect requests, or upload a payment screenshot for vision inspection.</p>
+                                            <h2>UPI Collect, APK &amp; Screenshot Forensics</h2>
+                                            <p>Inspect payment links, malicious APK baits, homoglyphs, or upload a screenshot for AI Vision audit.</p>
                                         </div>
                                         <button type="button" class="btn btn-primary" id="btnRunFraudAudit">Audit Risk</button>
                                     </div>
                                     <div class="preset-bar">
                                         <button type="button" class="chip-btn" data-fraud-preset="kyc">KYC Phishing SMS</button>
                                         <button type="button" class="chip-btn" data-fraud-preset="collect">Collect Scam URI</button>
-                                        <button type="button" class="chip-btn" data-fraud-preset="anydesk">AnyDesk Lottery Lure</button>
+                                        <button type="button" class="chip-btn" data-fraud-preset="apk">e-Challan APK Bait</button>
+                                        <button type="button" class="chip-btn" data-fraud-preset="anydesk">AnyDesk Lure</button>
                                         <button type="button" class="chip-btn" data-fraud-preset="legit">Verified Merchant URI</button>
                                     </div>
-                                    <label class="field-label" for="fraudPayloadInput">Payment Alert Text, Link, or upi://pay Intent</label>
+                                    <label class="field-label" for="fraudPayloadInput">Payment Alert Text, APK Name, Link, or upi://pay Intent</label>
                                     <textarea id="fraudPayloadInput" rows="5" spellcheck="false"></textarea>
                                     <label class="field-label mt-8" for="fraudContextInput">Optional Situation Context</label>
-                                    <input id="fraudContextInput" type="text" placeholder="e.g. Caller claiming courier refund asked to approve request">
+                                    <input id="fraudContextInput" type="text" placeholder="e.g. Caller claiming bank KYC asked to open link or approve request">
                                     <div class="upload-inline mt-8">
                                         <label class="file-btn" for="fraudImageUpload">
                                             Scan Screenshot with AI Vision
@@ -264,7 +317,7 @@
                                         <div class="risk-track"><div class="risk-fill" id="fraudRiskBar"></div></div>
                                     </div>
                                     <div class="callout-box" id="fraudActionBox">
-                                        Execute Audit Risk to inspect VPA structural anomalies, shorteners, and social-engineering triggers.
+                                        Execute Audit Risk to inspect VPA structural anomalies, shorteners, APK lures, and PIN-trap rules.
                                     </div>
                                     <div class="anatomy-grid" id="fraudAnatomyGrid"></div>
                                     <h3 class="mt-12">Cited Rule Triggers</h3>
@@ -275,12 +328,12 @@
 
                         <!-- 03. TAX & WEALTH -->
                         <section class="view-panel" id="view-tax">
-                            <div class="grid-2">
+                            <div class="grid-2 scroll-reveal">
                                 <div class="panel">
                                     <div class="panel-header">
                                         <div>
-                                            <h2>Interactive Tax &amp; Wealth Sliders</h2>
-                                            <p>Drag sliders to recalibrate Union Budget 2025 (Sec 115BAC) vs Old Regime and SIP inflation drag in real time.</p>
+                                            <h2>Budget 2025 Tax &amp; Wealth Engineering</h2>
+                                            <p>Slide values to compare Section 115BAC New vs Old Regime, breakeven deductions, SIP goal &amp; capital gains.</p>
                                         </div>
                                         <button type="button" class="btn btn-primary" id="btnComputeTaxWealth">Recalculate</button>
                                     </div>
@@ -354,37 +407,68 @@
                                             <input id="emiExtraInput" type="number" min="0" value="3000">
                                         </div>
                                     </div>
+
+                                    <hr class="divider">
+                                    <h3>Goal Reverse-SIP &amp; Equity Capital Gains (LTCG 12.5% / STCG 20%)</h3>
+                                    <div class="form-grid-3 mt-6">
+                                        <div class="form-row">
+                                            <label for="goalTargetInput">Target Corpus (Today INR)</label>
+                                            <input id="goalTargetInput" type="number" min="1000" value="2500000">
+                                        </div>
+                                        <div class="form-row">
+                                            <label for="capGainInput">Equity MF Profit (INR)</label>
+                                            <input id="capGainInput" type="number" min="0" value="250000">
+                                        </div>
+                                        <div class="form-row">
+                                            <label for="capMonthsInput">Holding (Months)</label>
+                                            <input id="capMonthsInput" type="number" min="1" value="18">
+                                        </div>
+                                    </div>
+                                    <div class="callout-box" id="goalAndCgSummary">Goal &amp; Capital Gains readout calculates here.</div>
                                 </div>
 
                                 <div class="panel">
                                     <div class="panel-header">
-                                        <h2>Regime Waterfall &amp; Wealth Trajectory</h2>
+                                        <h2>Slab Audit &amp; Wealth Trajectory</h2>
                                         <span class="mono-badge" id="taxWinnerBadge">CALCULATE</span>
                                     </div>
                                     <div class="split-metrics" id="taxComparisonCards"></div>
                                     <div class="callout-box" id="taxBreakevenBanner">Breakeven threshold loads here.</div>
                                     <div class="chart-wrap">
-                                        <canvas id="wealthChart" class="chart-canvas" height="225"></canvas>
+                                        <canvas id="wealthChart" class="chart-canvas" height="215"></canvas>
                                         <div class="chart-tooltip hidden" id="wealthChartTip"></div>
                                     </div>
                                     <div class="subpanel" id="emiSavingsSummary"></div>
+                                    <div class="table-wrap mt-12">
+                                        <table class="data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>New Regime Slab</th>
+                                                    <th class="num">Rate %</th>
+                                                    <th class="num">Taxable in Band</th>
+                                                    <th class="num">Slab Tax (INR)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="taxSlabTableBody"></tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
                         </section>
 
                         <!-- 04. AMFI & PAPER BACKTESTER -->
                         <section class="view-panel" id="view-market">
-                            <div class="panel">
+                            <div class="panel scroll-reveal">
                                 <div class="panel-header">
                                     <div>
                                         <h2>Live Public AMFI Mutual Funds &amp; Paper Backtester</h2>
-                                        <p>Search real Indian AMFI Mutual Fund schemes (api.mfapi.in) or benchmark proxies. Computes Sharpe, Volatility, Max Drawdown &amp; 1% Regular Plan Fee Drag (non-advisory paper simulation).</p>
+                                        <p>Fetches real public AMFI Indian Mutual Fund NAV series (api.mfapi.in) with Sharpe, Volatility, Max Drawdown &amp; 1% Regular Fee Leakage (non-advisory simulation).</p>
                                     </div>
                                     <button type="button" class="btn btn-primary" id="btnRunBacktest">Run Backtest</button>
                                 </div>
 
                                 <div class="amfi-bar">
-                                    <input id="amfiSearchInput" type="text" placeholder="Search real Indian Mutual Funds (e.g. Parag Parikh, Nifty 50, SBI Small Cap)...">
+                                    <input id="amfiSearchInput" type="text" placeholder="Search live Indian Mutual Funds (e.g. Parag Parikh, Nifty 50, SBI Small Cap)...">
                                     <button type="button" class="btn btn-secondary" id="btnSearchAmfi">Search Live AMFI</button>
                                     <select id="amfiSchemeSelect" aria-label="Select AMFI Mutual Fund Scheme">
                                         <option value="120716" selected>UTI Nifty 50 Index Fund - Direct Growth (Live AMFI)</option>
@@ -448,12 +532,12 @@
 
                         <!-- 05. SME GST & RUNWAY -->
                         <section class="view-panel" id="view-sme">
-                            <div class="grid-2">
+                            <div class="grid-2 scroll-reveal">
                                 <div class="panel">
                                     <div class="panel-header">
                                         <div>
                                             <h2>Interactive GST Invoice Builder &amp; Runway</h2>
-                                            <p>Add line items dynamically, offset Input Tax Credit (ITC), and model 90-day delayed receivables.</p>
+                                            <p>Add invoice rows dynamically, offset Input Tax Credit (ITC), and model 90-day delayed receivables.</p>
                                         </div>
                                         <div class="btn-row">
                                             <button type="button" class="btn btn-secondary" id="btnAddSmeItem">+ Add Row</button>
@@ -524,20 +608,23 @@
                     </main>
                 </div>
 
-                <!-- PERSISTENT RIGHT-SIDE CITATION COPILOT DOCK -->
+                <!-- PERSISTENT RIGHT-SIDE MULTI-TURN CITATION COPILOT DOCK -->
                 <aside class="copilot-dock" id="copilotDock" aria-label="Evidence-Cited AI Copilot">
                     <div class="copilot-dock-head">
                         <div>
                             <div class="dock-title">Cited AI Copilot</div>
-                            <div class="mono-sub" id="copilotProviderStatus">Engine: Auto</div>
+                            <div class="mono-sub" id="copilotProviderStatus">Engine: Checking...</div>
                         </div>
-                        <button type="button" class="btn btn-outline mobile-only-btn" id="btnCloseMobileCopilot">Close</button>
+                        <div class="btn-row">
+                            <button type="button" class="btn btn-outline" id="btnClearCopilotChat">Clear</button>
+                            <button type="button" class="btn btn-outline mobile-only-btn" id="btnCloseMobileCopilot">Close</button>
+                        </div>
                     </div>
 
                     <div class="preset-bar">
-                        <button type="button" class="chip-btn" data-copilot-q="Audit my cashflow anomalies, tax breakeven, and recommend top 2 actions.">Full Money Audit</button>
-                        <button type="button" class="chip-btn" data-copilot-q="Analyze my current scam risk and explain every flagged trigger.">Verify Fraud Risk</button>
-                        <button type="button" class="chip-btn" data-copilot-q="Review my fund Sharpe ratio, 1% Regular fee drag, and SME stress runway.">Portfolio &amp; SME Check</button>
+                        <button type="button" class="chip-btn" data-copilot-q="Audit my cashflow anomalies, tax breakeven, and recommend top 2 concrete savings actions.">Full Money Audit</button>
+                        <button type="button" class="chip-btn" data-copilot-q="Analyze my active UPI fraud check and explain the red-flag triggers.">Verify Scam Risk</button>
+                        <button type="button" class="chip-btn" data-copilot-q="Review my live AMFI fund Sharpe ratio, Direct vs Regular fee drag, and SME runway.">AMFI &amp; SME Audit</button>
                     </div>
 
                     <div class="upload-row">
@@ -546,18 +633,18 @@
                             <input id="copilotImageInput" type="file" accept="image/png,image/jpeg,image/webp">
                         </label>
                         <span id="copilotImageStatus" class="muted-text">No image</span>
-                        <button type="button" class="btn btn-outline hidden" id="btnClearImage">Clear</button>
+                        <button type="button" class="btn btn-outline hidden" id="btnClearImage">Remove</button>
                     </div>
 
-                    <div class="copilot-output" id="copilotOutput">
-                        <p class="muted-text">Telemetry from all modules is live-linked. Ask a question or click a prompt above to generate verifiable citations and interactive simulations.</p>
+                    <div class="copilot-thread" id="copilotOutput">
+                        <div class="chat-msg msg-assistant">Telemetry from all 5 modules is linked. Ask any question or click a prompt above to inspect live cited analytics.</div>
                     </div>
 
                     <div class="citation-pills-bar hidden" id="copilotCitationsBar"></div>
                     <div class="action-buttons-bar hidden" id="copilotActionsBar"></div>
 
                     <form class="copilot-form" id="copilotForm">
-                        <input id="copilotQuestionInput" type="text" placeholder="Ask across your ledger, tax, fraud or fund data...">
+                        <input id="copilotQuestionInput" type="text" placeholder="Ask about spend, tax, fraud, AMFI NAV, or image...">
                         <button type="submit" class="btn btn-primary" id="btnAskCopilot">Ask</button>
                     </form>
                 </aside>
@@ -571,30 +658,31 @@
                 <h2 id="settingsTitle">AI Model &amp; Runtime Key Settings</h2>
                 <button type="button" class="btn btn-outline" id="btnCloseSettings">Close</button>
             </div>
-            <p class="modal-desc">
-                All deterministic Indian math executes locally first. Connect a Gemini or BharatCode GLM 5.3 Flash key in browser sessionStorage for natural-language memos and screenshot OCR, or select Deterministic Mode for zero-key operation.
+            <p class="modal-desc" id="serverEnvStatusNote">
+                Checking server AI configuration...
             </p>
             <div class="form-row">
                 <label for="aiProviderSelect">Inference Provider</label>
                 <select id="aiProviderSelect">
-                    <option value="auto">Auto (Server .env Key or Deterministic Grounded Engine)</option>
-                    <option value="deterministic">Deterministic Cited Engine Only (Zero-Key)</option>
-                    <option value="gemini">Google Gemini (gemini-2.5-flash)</option>
+                    <option value="auto">Auto (Live Server/Session Key or Deterministic Grounded Engine)</option>
+                    <option value="gemini">Google Gemini (3.5 Flash Lite / 3 Flash Preview)</option>
                     <option value="bharatcode">BharatCode API (glm-5.3-flash / deepseek-chat)</option>
+                    <option value="deterministic">Deterministic Cited Engine Only (Zero-Key)</option>
                 </select>
             </div>
             <div class="form-row">
-                <label for="aiModelSelect">Model</label>
+                <label for="aiModelSelect">Model Identifier</label>
                 <select id="aiModelSelect">
-                    <option value="gemini-2.5-flash">gemini-2.5-flash (Text + Vision)</option>
-                    <option value="gemini-2.0-flash">gemini-2.0-flash (Text + Vision)</option>
+                    <option value="gemini-3.5-flash-lite">gemini-3.5-flash-lite (Live Fast + Vision)</option>
+                    <option value="gemini-3-flash-preview">gemini-3-flash-preview (Live Reasoning + Vision)</option>
+                    <option value="gemini-3.8-flash">gemini-3.8-flash (Latest Preview)</option>
                     <option value="glm-5.3-flash">glm-5.3-flash (BharatCode Text + Vision)</option>
                     <option value="deepseek-chat">deepseek-chat (BharatCode Text)</option>
                 </select>
             </div>
             <div class="form-row">
-                <label for="aiApiKeyInput">Session API Key (Stored in browser tab sessionStorage only)</label>
-                <input id="aiApiKeyInput" type="password" autocomplete="off" placeholder="Leave blank to use server .env or deterministic mode">
+                <label for="aiApiKeyInput">Optional Tab API Key (Stored in browser sessionStorage only)</label>
+                <input id="aiApiKeyInput" type="password" autocomplete="off" placeholder="Optional override key if server .env is unset">
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline" id="btnClearSessionKey">Clear Key</button>
