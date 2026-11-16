@@ -1,6 +1,7 @@
 """Deterministic NPCI UPI URI, phishing SMS, APK malware, homoglyph, and payment fraud forensics."""
 from __future__ import annotations
 
+import base64
 import re
 import urllib.parse
 from typing import Any, Dict, List
@@ -242,18 +243,25 @@ def decode_qr_from_bytes(image_bytes: bytes) -> str:
     return ""
 
 
+_FALLBACK_QR_PNG_B64: Dict[str, str] = {
+    "scam": "iVBORw0KGgoAAAANSUhEUgAAAUgAAAFIAQAAAAAab1qeAAADKElEQVR42u2aPZLrOAyEP5hTRWf0DeibyBd7S2pPJt9EvgGdUVW0egNqZjd8m/JJif46IQU0Gg2Z+M3jwok8kSfyRJ7IkZFIUu1XNUqSVXBl2v2aYAIgSNKoa4+Slt2vSItJclpSBSeZpDbo2g/kbDfsPWXeD2DuD9PnBpvZmR1HhGTCskOSlt1LLWgHXJmswuARAmBaZ7OHe5u5l821R8j43/2bGWCSJMJiNcqVaXxmeJnZA0iucNnuc4Nf4ZkBmdnXyMzgJUn2vtPCgn/Kvx5sU249LFROdQFsZnZ7Wlhns4eu0baoC8yEWddX/hqZGSQ1JvyaWpBpxZVp1qGXYh5aL0m5hWUnCth7rhzKcfdr6vejrn1NTtqJIshqzAQdugAvMb4S+E3kx8wqs16msNK6uLTbpPqyUfnzmxlg6oGySCuuYJ0urI7eSZFUOE70JJlrzH0nxmaGToDq7aNqFEG7l44NcRpaK2bedgG2GwrrrPLM230mSEFnF/kTITCpxuwk04q+NQNHJRnaZ5Bm/JoaT4jZ4iKbzJXpcwU3eEVoQXjJFUwrTkuqUYRFP8fAvmLoZbA30i0sP/ai8qmXDlXZdcHa6ybJFZKUG4zsL30rahXwyp0c1YJUwWlR/U6gcZlB0t7vTGtyZVIlNSZVhtdLhAWgMe1EtZ/Xu1eWTmboznMLhwF9TO4n6WcuMzYzSK6we6l1n8Fp+YsoVyaAsRU18xbFducryN73+XPrMjvMVr9zZVx/yZU+iyzgVxqY1K34wTXDZvpEXYCvsOh9T75M6cr8seTeNux3/7/IaCrPzxUaXLyMMOfN5Aq6xuwG9+fNEsDX+7H3irATM7D759iue4V/KwJEtaDslbvbNLrr3g12ZafFpKzSXcYyafQZ9GZmZmz31GDv5Pj3dme7cQH8OY/rrChpsQq8H2x3Pjf+OhQ1pPZH/KFx9I2pBc2HgmBc1/2/SL+mzR4XwL0eur7sc5ukNf0JmmG7z75Mn2u0T5znGuU1m91xJzP00zGQyQ1cBV/4dQWYrMbhNcNhKbTeQUsLHG31uP6Snf/5n8gTeSJP5NDIfwCVtB37MJwAcQAAAABJRU5ErkJggg==",
+    "safe": "iVBORw0KGgoAAAANSUhEUgAAAUgAAAFIAQAAAAAab1qeAAAC60lEQVR42u2aMa7jOBBEX5sG6Iy+gXSDOQK9JyN9M+kmcriZlMkArZqA0v+eH+2mHiqyoErcaFZVV9PEf3xONGRDNmRDNmRDAiBJBQAnDckkDfVLsjVMAHSS1OrpJW08r7C9rCdtTpK9LhAlza2XJKn4GTYnSVYgaiNIwmuKGT+3Xnr7/TTL8mt3z04zo2n9izpkjlLxE2wASWtoHfKODBI8r9zNL3FIECSzMEM6+qRV6WlmJwh32TOMyXCPfpQtV0YzuzZO1tsz7695I0xRm3//2JQLKhfFvLkVUv1kK92Q3BpalSRJa5iSFa8hWfFT3FXe1iCp+I/upVeYO3udWW5sbumrz7nn12XpR4Olb5wMwGJyZX/vhrvZ9XEDrwnc0k2tSoBbrtx1fnYDvC6MMj2i7MRiKb8uTd8Pr9gdAlX8BBCmmFU5uSnXt3Il3ErMViBmlbBP8TE7NUe9Kxew12d3QTXZ0BQ/3gV5KcuvYUBm/SjcDHdY+tGssc2bcqn4h+nkNN7uJ8J44/S8dkNyS5smvub3tLk1SPsJKkEShClKjW2OmWvuKuekyjlAJ9kaNCStLVPdlStMacNLdYeZpLkbkmkGPnya+F+9RNqHq+InklXNWoOGxMdW6fsc4dagbFo7ZRU65c1rop2jd2+TaoJxuOWaus+QmgOEc3VB869sQPynFmPz5dFXn2zPy79N34+ZK5vWIFnxU8xWQs0MNaRCy8GOfH7U6+znMW88e9LmHv0ofG2olgV973q+XFAnWQmqu4yBz2Xvt6n88DbdwObmTrkCStuq/7Gb2OPjKcpKmEi2Bim31P1Ins3M7AyjndzSj/Y60w0Aj1tjmx83NPwj5brHsbLYjQ26geI1NU7+3r+vYUCS/uQlmr7/rFLCaYoyaQLTTMzuw5Xr+O/Svg+FrqY9Lbv4eUMDxnxyX7fmqJnh2bf7YOf9hgbgAOxpxMFcYbyJ5ddwK0b3t1fJ2u39hmzIhmzIhgTgN3A905xj7cxHAAAAAElFTkSuQmCC",
+}
+
+
 def generate_sample_qr_png(kind: str = "scam") -> bytes:
-    """Generates a valid high-contrast UPI QR code PNG for live demonstration and testing."""
+    """Generates a valid high-contrast UPI QR code PNG (OpenCV when available, pure-Python fallback on serverless)."""
+    clean_kind = "safe" if kind == "safe" else "scam"
     try:
         import cv2
-        import numpy as np
+        payload = SAMPLE_QR_PAYLOADS[clean_kind]
+        encoder = cv2.QRCodeEncoder.create()
+        matrix = encoder.encode(payload)
+        scaled = cv2.resize(matrix, (280, 280), interpolation=cv2.INTER_NEAREST)
+        bordered = cv2.copyMakeBorder(scaled, 24, 24, 24, 24, cv2.BORDER_CONSTANT, value=255)
+        ok, buf = cv2.imencode(".png", bordered)
+        if ok:
+            return bytes(buf)
     except ImportError:
-        return b""
-
-    payload = SAMPLE_QR_PAYLOADS.get(kind, SAMPLE_QR_PAYLOADS["scam"])
-    encoder = cv2.QRCodeEncoder.create()
-    matrix = encoder.encode(payload)
-    scaled = cv2.resize(matrix, (280, 280), interpolation=cv2.INTER_NEAREST)
-    bordered = cv2.copyMakeBorder(scaled, 24, 24, 24, 24, cv2.BORDER_CONSTANT, value=255)
-    ok, buf = cv2.imencode(".png", bordered)
-    return bytes(buf) if ok else b""
+        pass
+    return base64.b64decode(_FALLBACK_QR_PNG_B64[clean_kind])

@@ -11,9 +11,15 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engines.copilot import ask_financial_copilot, compute_financial_health_score
+from engines.copilot import ask_financial_copilot, compute_financial_health_score, extract_ledger_lines_from_pdf
 from engines.fraud_shield import analyze_payment_risk, decode_qr_from_bytes, generate_sample_qr_png
-from engines.market_backtest import compare_amfi_funds, run_paper_backtest, search_amfi_funds, simulate_direct_vs_regular
+from engines.market_backtest import (
+    compare_amfi_funds,
+    fetch_live_market_news_impact,
+    run_paper_backtest,
+    search_amfi_funds,
+    simulate_direct_vs_regular,
+)
 from engines.sme_gst import compute_gst_and_cashflow
 from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
 from engines.tax_wealth import (
@@ -244,6 +250,55 @@ class TestFinancialEngines(unittest.TestCase):
         self.assertEqual(cmp_res["periods"], 20)
         self.assertIn("correlation", cmp_res)
         self.assertEqual(cmp_res["series"][0]["fund_a_indexed"], 100.0)
+
+    def test_v5_bank_pdf_cloud_qr_fallback_and_macro_news_impact(self):
+        import base64
+        import builtins
+
+        # Verify pure-Python fallback QR generator works cleanly even when OpenCV (cv2) is absent (e.g. Vercel serverless)
+        real_import = builtins.__import__
+
+        def _no_cv2_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "cv2":
+                raise ImportError("Simulated serverless runtime without cv2")
+            return real_import(name, globals, locals, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=_no_cv2_import):
+            fallback_png = generate_sample_qr_png("scam")
+        self.assertGreater(len(fallback_png), 400)
+        self.assertEqual(fallback_png[:4], b"\x89PNG")
+        self.assertIn("cashback-helpdesk@okexample", decode_qr_from_bytes(fallback_png))
+
+        pdf_stream = (
+            b"%PDF-1.4\n1 0 obj<<>>endobj\nstream\n"
+            b"(Credited Rs.35000.00 towards Internship Stipend on 01-Nov-2026.)\n"
+            b"(Debited Rs.499.00 via UPI to Swiggy on 04-Nov-2026.)\n"
+            b"endstream\n%%EOF"
+        )
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=False):
+            pdf_out = extract_ledger_lines_from_pdf(
+                pdf_data="data:application/pdf;base64," + base64.b64encode(pdf_stream).decode("ascii"),
+                provider="deterministic",
+            )
+        self.assertTrue(pdf_out["success"])
+        self.assertIn("35000.00", pdf_out["lines"])
+
+        bearish_rss = (
+            "<rss><channel>"
+            "<item><title>Crude spike and tariff inflation pressure Nifty volatility</title><pubDate>Mon, 16 Nov 2026</pubDate></item>"
+            "</channel></rss>"
+        ).encode("utf-8")
+
+        class _RssMock:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return bearish_rss
+
+        with patch("engines.market_backtest.urllib.request.urlopen", return_value=_RssMock()):
+            news = fetch_live_market_news_impact("Nifty 50")
+        self.assertTrue(news["success"])
+        self.assertLess(news["sentiment_score"], 0)
+        self.assertEqual(news["regime"], "DEFENSIVE")
 
 
 if __name__ == "__main__":

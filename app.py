@@ -15,12 +15,18 @@ ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from engines.copilot import ask_financial_copilot, compute_financial_health_score, extract_payment_text_from_image
+from engines.copilot import (
+    ask_financial_copilot,
+    compute_financial_health_score,
+    extract_ledger_lines_from_pdf,
+    extract_payment_text_from_image,
+)
 from engines.fraud_shield import analyze_payment_risk, decode_qr_from_bytes, generate_sample_qr_png
 from engines.market_backtest import (
     BENCHMARK_SERIES,
     POPULAR_INDIAN_FUNDS,
     compare_amfi_funds,
+    fetch_live_market_news_impact,
     run_paper_backtest,
     search_amfi_funds,
 )
@@ -249,6 +255,26 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
             self._send_json(res)
             return
 
+        if path == "/api/ledger/parse_pdf":
+            session_key = str(self.headers.get("X-User-AI-Key", "") or body.get("user_api_key", "")).strip()
+            ext = extract_ledger_lines_from_pdf(
+                pdf_data=str(body.get("pdf_data", "")),
+                provider=str(body.get("provider", "auto")),
+                model=str(body.get("model", "")),
+                user_api_key=session_key,
+            )
+            if not ext.get("success") or not ext.get("lines"):
+                self._send_json({"success": False, "error": ext.get("error", "PDF extraction failed")}, status=422)
+                return
+            res = parse_sms_ledger(
+                raw_text=ext["lines"],
+                monthly_budget_target=_num(body.get("monthly_budget_target"), 0.0),
+            )
+            res["normalized_feed"] = ext["lines"]
+            res["extraction_source"] = ext.get("source", "gemini")
+            self._send_json(res)
+            return
+
         if path == "/api/ledger/export.csv":
             res = parse_sms_ledger(
                 raw_text=str(body.get("raw_text", "")),
@@ -395,6 +421,13 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
                 scheme_b=str(body.get("scheme_b", "122639")),
             )
             self._send_json(res, status=200 if res.get("success") else 400)
+            return
+
+        if path == "/api/market/news_impact":
+            res = fetch_live_market_news_impact(
+                asset_focus=str(body.get("asset_focus", "RBI Nifty 50 Indian mutual funds")),
+            )
+            self._send_json(res)
             return
 
         if path == "/api/market/backtest":

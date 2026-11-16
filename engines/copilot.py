@@ -450,3 +450,62 @@ def extract_payment_text_from_image(
             pass
 
     return {"success": False, "extracted_text": "", "vision_provider": "none"}
+
+
+PDF_BASE64_RE = re.compile(r"^data:application/pdf;base64,([A-Za-z0-9+/=\s]+)$", re.IGNORECASE)
+
+
+def extract_ledger_lines_from_pdf(
+    pdf_data: str,
+    provider: str = "auto",
+    model: str = "",
+    user_api_key: str = "",
+) -> Dict[str, Any]:
+    """Extracts normalized Indian bank/UPI transaction lines from an uploaded statement PDF."""
+    raw = str(pdf_data or "").strip()
+    m = PDF_BASE64_RE.match(raw)
+    b64 = re.sub(r"\s+", "", m.group(1) if m else raw)
+    if not b64 or not re.fullmatch(r"[A-Za-z0-9+/=]+", b64):
+        return {"success": False, "lines": "", "error": "Invalid PDF payload"}
+
+    prov = str(provider or "auto").strip().lower()
+    gemini_key = (user_api_key if prov in ("gemini", "auto") else "") or os.environ.get("GEMINI_API_KEY", "").strip()
+    prompt = (
+        "Extract EVERY credit and debit transaction from this Indian bank statement PDF. "
+        "Output ONLY plain lines (no markdown, no headers) in exact format:\n"
+        "Credited Rs.AMOUNT towards COUNTERPARTY on DD-Mon-YYYY.\n"
+        "Debited Rs.AMOUNT via UPI to COUNTERPARTY on DD-Mon-YYYY."
+    )
+
+    if prov != "deterministic" and gemini_key:
+        for chosen_m in GEMINI_MODELS:
+            try:
+                txt = _call_gemini(gemini_key, chosen_m, prompt, "{}", "application/pdf", b64, history=[])
+                clean_lines = "\n".join(
+                    ln.strip() for ln in txt.splitlines()
+                    if re.search(r"\b(credited|debited)\b", ln, re.I) and re.search(r"\d", ln)
+                )
+                if clean_lines:
+                    return {"success": True, "lines": clean_lines, "source": f"gemini ({chosen_m})"}
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
+                continue
+
+    # Pure-Python fallback for uncompressed text PDF streams offline
+    try:
+        import base64 as _b64
+        decoded = _b64.b64decode(b64, validate=False).decode("latin-1", errors="ignore")
+        ascii_runs = re.findall(r"\(([^()]{8,140})\)", decoded)
+        text_lines = "\n".join(
+            run.strip() for run in ascii_runs
+            if re.search(r"\b(credit|debit|rs\.?|inr)\b", run, re.I) and re.search(r"\d", run)
+        )
+        if text_lines:
+            return {"success": True, "lines": text_lines, "source": "pdf_text_stream_fallback"}
+    except ValueError:
+        pass
+
+    return {
+        "success": False,
+        "lines": "",
+        "error": "Could not extract transactions from scanned/compressed PDF offline. Configure Gemini API key in AI Keys or export CSV.",
+    }

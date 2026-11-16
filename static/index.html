@@ -186,8 +186,8 @@
                                         </div>
                                         <div class="btn-row">
                                             <label class="file-btn" for="ledgerCsvUpload">
-                                                Import CSV
-                                                <input id="ledgerCsvUpload" type="file" accept=".csv,text/csv">
+                                                Import CSV / PDF
+                                                <input id="ledgerCsvUpload" type="file" accept=".csv,text/csv,.tsv,.txt,application/pdf,.pdf">
                                             </label>
                                             <button type="button" class="btn btn-primary" id="btnAnalyzeLedger">Run Audit</button>
                                             <button type="button" class="btn btn-outline" id="btnExportCsv">Export CSV</button>
@@ -579,6 +579,19 @@
                                     <canvas id="compareChart" class="chart-canvas" height="220"></canvas>
                                     <div class="chart-tooltip hidden" id="compareChartTip"></div>
                                 </div>
+                            </div>
+
+                            <div class="panel mt-16 scroll-reveal" id="newsImpactPanel">
+                                <div class="panel-header">
+                                    <div>
+                                        <h2>Real-Time India Market &amp; RBI Macro News Sentiment Impact</h2>
+                                        <p>Pulls live Indian business/RBI RSS headlines and scores deterministic equity sensitivity vs Gold/Debt hedge buffers (Track 3 Paper Analytics).</p>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary" id="btnFetchNewsImpact">Refresh Macro News</button>
+                                </div>
+                                <div class="split-metrics" id="newsMetricsRow"></div>
+                                <div class="callout-box" id="newsImpactSummary">Macro sentiment index loading...</div>
+                                <ul class="audit-list mt-8" id="newsHeadlinesList"></ul>
                             </div>
                         </section>
 

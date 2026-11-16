@@ -15,6 +15,7 @@
             emi: null,
             backtest: null,
             comparison: null,
+            news_impact: null,
             harvest: null,
             qr_scan: null,
             sme: null,
@@ -727,6 +728,44 @@
         redrawTabCharts('market');
     }
 
+    async function runNewsImpact() {
+        const btn = document.getElementById('btnFetchNewsImpact');
+        const sel = document.getElementById('amfiSchemeSelect');
+        const schemeTitle = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text : 'RBI Nifty 50 Indian mutual funds';
+        if (btn) { btn.disabled = true; btn.textContent = 'Scanning News...'; }
+        const data = await postJson('/api/market/news_impact', { asset_focus: schemeTitle });
+        if (btn) { btn.disabled = false; btn.textContent = 'Refresh Macro News'; }
+        if (!data || !data.success) return;
+        STATE.telemetry.news_impact = data;
+
+        const srcLabel = data.news_source === 'live_google_news_india_rss' ? 'LIVE INDIA RSS' : 'MACRO DIGEST';
+        const row = document.getElementById('newsMetricsRow');
+        row.replaceChildren();
+        [
+            { l: 'SENTIMENT INDEX', v: `${data.sentiment_score >= 0 ? '+' : ''}${data.sentiment_score} / 100` },
+            { l: 'MACRO REGIME', v: data.regime },
+            { l: 'EQUITY SHOCK EST', v: `${data.projected_equity_impact_pct >= 0 ? '+' : ''}${data.projected_equity_impact_pct}%` },
+            { l: 'GOLD HEDGE SHIFT', v: `${data.projected_gold_hedge_pct >= 0 ? '+' : ''}${data.projected_gold_hedge_pct}% (${srcLabel})` },
+        ].forEach((m) => {
+            const d = document.createElement('div');
+            d.className = 'mini-stat';
+            const l = document.createElement('div'); l.className = 'mini-stat-label'; l.textContent = m.l;
+            const v = document.createElement('div'); v.className = 'mini-stat-val'; v.textContent = m.v;
+            d.append(l, v);
+            row.appendChild(d);
+        });
+        document.getElementById('newsImpactSummary').textContent = data.summary;
+
+        const list = document.getElementById('newsHeadlinesList');
+        list.replaceChildren();
+        (data.headlines || []).forEach((h) => {
+            const li = document.createElement('li');
+            li.className = h.sentiment_tag === 'BEARISH' ? 'sev-CRITICAL' : (h.sentiment_tag === 'BULLISH' ? 'sev-SAFE' : '');
+            li.textContent = `[${h.sentiment_tag} ${h.score_delta >= 0 ? '+' : ''}${h.score_delta}] ${h.title} (${h.published})`;
+            list.appendChild(li);
+        });
+    }
+
     function renderSmeItemRows() {
         const container = document.getElementById('smeItemRowsContainer');
         container.replaceChildren();
@@ -985,7 +1024,7 @@
         STATE.smeItems = smeDefaults.items.map((x) => Object.assign({}, x));
         renderSmeItemRows();
 
-        await Promise.all([runLedgerAnalysis(), runFraudAudit(), runTaxAndWealth(), runBacktest(), runFundComparison(), runSmeAnalysis()]);
+        await Promise.all([runLedgerAnalysis(), runFraudAudit(), runTaxAndWealth(), runBacktest(), runFundComparison(), runNewsImpact(), runSmeAnalysis()]);
         showToast(`Loaded scenario: ${p.name}`, false);
     }
 
@@ -1094,8 +1133,28 @@
         document.getElementById('ledgerCsvUpload').addEventListener('change', (ev) => {
             const f = ev.target.files && ev.target.files[0];
             if (!f) return;
+            const isPdf = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
             const rd = new FileReader();
             rd.onload = async () => {
+                if (isPdf) {
+                    showToast(`Scanning bank statement PDF: ${f.name}...`, false);
+                    const data = await postJson(
+                        '/api/ledger/parse_pdf',
+                        {
+                            pdf_data: String(rd.result || ''),
+                            monthly_budget_target: Number(document.getElementById('monthlyBudgetInput').value || 0),
+                            provider: STATE.aiSettings.provider,
+                            model: STATE.aiSettings.model,
+                        },
+                        STATE.aiSettings.apiKey ? { 'X-User-AI-Key': STATE.aiSettings.apiKey } : {}
+                    );
+                    if (data && data.normalized_feed) {
+                        document.getElementById('smsLedgerInput').value = data.normalized_feed;
+                        await runLedgerAnalysis();
+                        showToast(`Extracted ${data.transaction_count} transactions from PDF (${data.extraction_source || 'Gemini'}).`, false);
+                    }
+                    return;
+                }
                 const data = await postJson('/api/ledger/parse_csv', {
                     csv_text: String(rd.result || ''),
                     monthly_budget_target: Number(document.getElementById('monthlyBudgetInput').value || 0),
@@ -1103,10 +1162,11 @@
                 if (data && data.normalized_feed) {
                     document.getElementById('smsLedgerInput').value = data.normalized_feed;
                     await runLedgerAnalysis();
-                    showToast(`Imported ${data.transaction_count} CSV rows.`, false);
+                    showToast(`Imported ${data.transaction_count} statement rows.`, false);
                 }
             };
-            rd.readAsText(f);
+            if (isPdf) rd.readAsDataURL(f);
+            else rd.readAsText(f);
         });
         document.getElementById('btnExportCsv').addEventListener('click', async () => {
             const res = await fetch('/api/ledger/export.csv', {
@@ -1178,6 +1238,7 @@
         document.getElementById('amfiSchemeSelect').addEventListener('change', runBacktest);
         document.getElementById('btnRunBacktest').addEventListener('click', runBacktest);
         document.getElementById('btnCompareFunds').addEventListener('click', runFundComparison);
+        document.getElementById('btnFetchNewsImpact').addEventListener('click', runNewsImpact);
         document.getElementById('cmpFundASelect').addEventListener('change', runFundComparison);
         document.getElementById('cmpFundBSelect').addEventListener('change', runFundComparison);
 

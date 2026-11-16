@@ -222,6 +222,55 @@ class TestArthaLedgerHttpApi(unittest.TestCase):
         self.assertLessEqual(-1.0, cmp_res["correlation"])
         self.assertLessEqual(cmp_res["correlation"], 1.0)
 
+    def test_v5_bank_pdf_parse_and_live_market_news_impact(self):
+        import base64
+        from unittest.mock import patch
+
+        sample_rss = (
+            "<rss><channel>"
+            "<item><title>RBI rate cut boosts Nifty rally and FII inflow</title><pubDate>Mon, 16 Nov 2026</pubDate></item>"
+            "<item><title>GDP growth outlook beats consensus estimate</title><pubDate>Mon, 16 Nov 2026</pubDate></item>"
+            "</channel></rss>"
+        ).encode("utf-8")
+
+        class _RssResp:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return sample_rss
+
+        real_urlopen = urllib.request.urlopen
+
+        def _news_urlopen(req_or_url, *args, **kwargs):
+            u = getattr(req_or_url, "full_url", str(req_or_url))
+            if "news.google.com" in u:
+                return _RssResp()
+            return real_urlopen(req_or_url, *args, **kwargs)
+
+        with patch("engines.market_backtest.urllib.request.urlopen", side_effect=_news_urlopen):
+            n_code, news_res = self._post("/api/market/news_impact", {"asset_focus": "Nifty 50"})
+        self.assertEqual(n_code, 200)
+        self.assertTrue(news_res["success"])
+        self.assertEqual(news_res["news_source"], "live_google_news_india_rss")
+        self.assertGreater(news_res["sentiment_score"], 0)
+        self.assertEqual(news_res["regime"], "RISK-ON")
+
+        pdf_stream = (
+            b"%PDF-1.4\n1 0 obj<<>>endobj\nstream\n"
+            b"(Credited Rs.50000.00 towards Client Retainer on 01-Nov-2026.)\n"
+            b"(Debited Rs.1200.00 via UPI to Swiggy on 03-Nov-2026.)\n"
+            b"endstream\n%%EOF"
+        )
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=False):
+            p_code, pdf_res = self._post("/api/ledger/parse_pdf", {
+                "pdf_data": "data:application/pdf;base64," + base64.b64encode(pdf_stream).decode("ascii"),
+                "monthly_budget_target": 15000,
+                "provider": "deterministic",
+            })
+        self.assertEqual(p_code, 200)
+        self.assertTrue(pdf_res["success"])
+        self.assertEqual(pdf_res["total_income"], 50000.0)
+        self.assertEqual(pdf_res["total_spent"], 1200.0)
+
 
 if __name__ == "__main__":
     unittest.main()

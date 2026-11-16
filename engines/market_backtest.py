@@ -7,6 +7,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from statistics import stdev
 from typing import Any, Dict, List
 
@@ -384,4 +385,98 @@ def compare_amfi_funds(scheme_a: str = "120716", scheme_b: str = "122639") -> Di
             **{k: v for k, v in m_b.items() if k != "rets"},
         },
         "series": series,
+    }
+
+
+BULLISH_NEWS_WEIGHTS: Dict[str, int] = {
+    "rally": 14, "surge": 14, "record": 12, "rate cut": 16, "fii inflow": 16, "inflow": 12,
+    "gdp": 10, "growth": 10, "easing": 12, "dividend": 10, "gain": 8, "rebound": 12,
+    "upgrade": 12, "cooling inflation": 14, "surplus": 10,
+}
+
+BEARISH_NEWS_WEIGHTS: Dict[str, int] = {
+    "inflation": -12, "rate hike": -16, "hawkish": -14, "tariff": -15, "selloff": -16,
+    "slump": -15, "fall": -10, "drop": -10, "outflow": -14, "deficit": -10,
+    "crude spike": -14, "oil": -8, "rupee low": -12, "volatility": -10, "crash": -18, "war": -16,
+}
+
+CURATED_FALLBACK_HEADLINES: List[Dict[str, str]] = [
+    {"title": "RBI holds liquidity calibration balanced as India core CPI inflation stays near target band", "published": "Macro Desk Digest"},
+    {"title": "Domestic SIP inflows remain resilient even amid short-term FII outflow volatility in large caps", "published": "AMFI Flow Summary"},
+    {"title": "Safe-haven gold prices gain on global tariff uncertainty while IT stocks watch US rate trajectory", "published": "Sector Watch"},
+    {"title": "Banking credit growth sustains healthy momentum with benign corporate NPA ratios", "published": "Credit Desk"},
+]
+
+
+def fetch_live_market_news_impact(asset_focus: str = "RBI Nifty 50 Indian mutual funds") -> Dict[str, Any]:
+    """
+    Fetches live Indian market & RBI macro RSS headlines (with offline fallback) and computes
+    deterministic keyword sentiment & portfolio sensitivity ranges (non-advisory).
+    """
+    rss_url = (
+        "https://news.google.com/rss/search?q="
+        + urllib.parse.quote('RBI OR "Nifty 50" OR Sensex OR "India inflation" OR "FII inflow"')
+        + "&hl=en-IN&gl=IN&ceid=IN:en"
+    )
+    raw_items: List[Dict[str, str]] = []
+    news_source = "offline_macro_fallback"
+
+    try:
+        req = urllib.request.Request(rss_url, headers={"User-Agent": "ArthaLedger/4.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            xml_bytes = resp.read()
+        root = ET.fromstring(xml_bytes)
+        for item in root.findall(".//item")[:8]:
+            title = (item.findtext("title") or "").strip()
+            pub = (item.findtext("pubDate") or "Live Feed").strip()
+            if title:
+                raw_items.append({"title": title, "published": pub[:25]})
+        if raw_items:
+            news_source = "live_google_news_india_rss"
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ET.ParseError, ValueError):
+        raw_items = list(CURATED_FALLBACK_HEADLINES)
+
+    scored_headlines: List[Dict[str, Any]] = []
+    total_delta = 0
+    for item in raw_items:
+        t_low = item["title"].lower()
+        delta = 0
+        for kw, w in BULLISH_NEWS_WEIGHTS.items():
+            if kw in t_low:
+                delta += w
+        for kw, w in BEARISH_NEWS_WEIGHTS.items():
+            if kw in t_low:
+                delta += w
+        total_delta += delta
+        tag = "BULLISH" if delta > 0 else ("BEARISH" if delta < 0 else "NEUTRAL")
+        scored_headlines.append({
+            "title": item["title"],
+            "published": item["published"],
+            "score_delta": delta,
+            "sentiment_tag": tag,
+        })
+
+    sentiment_score = max(-100, min(100, int(round(total_delta * 1.4))))
+    if sentiment_score >= 15:
+        regime = "RISK-ON"
+        action_note = "Macro news flow leans constructive for equities; continue disciplined SIP staggered allocation."
+    elif sentiment_score <= -15:
+        regime = "DEFENSIVE"
+        action_note = "Headline stress elevates near-term drawdown risk; verify emergency cash & gold/debt diversification."
+    else:
+        regime = "BALANCED"
+        action_note = "Mixed macro signals; avoid lumpsum timing reactions and maintain core-satellite SIP rebalancing."
+
+    est_eq_shock = round(sentiment_score * 0.045, 2)
+    est_gold_offset = round(-sentiment_score * 0.02, 2)
+
+    return {
+        "success": True,
+        "news_source": news_source,
+        "sentiment_score": sentiment_score,
+        "regime": regime,
+        "projected_equity_impact_pct": est_eq_shock,
+        "projected_gold_hedge_pct": est_gold_offset,
+        "summary": f"{regime} (Sentiment {sentiment_score:+d}/100 across {len(scored_headlines)} India macro headlines). {action_note}",
+        "headlines": scored_headlines,
     }
