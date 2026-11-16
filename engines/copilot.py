@@ -133,12 +133,11 @@ def _derive_actions_and_citations(context: Dict[str, Any]) -> tuple[List[Dict[st
 
 
 def _build_deterministic_answer(question: str, context: Dict[str, Any], has_image: bool) -> Dict[str, Any]:
-    """Produces a quantitative executive memo strictly from computed engine telemetry."""
+    """Produces a targeted, conversational or executive diagnostic strictly from computed telemetry."""
+    q_clean = question.strip()
+    q_low = q_clean.lower()
     health = compute_financial_health_score(context)
     actions, base_citations = _derive_actions_and_citations(context)
-    bullets: List[str] = [
-        f"Financial Health Index: {health['score']}/100 ({health['grade']})."
-    ]
 
     ledger = context.get("ledger") or {}
     tax = context.get("tax") or {}
@@ -146,7 +145,42 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
     backtest = context.get("backtest") or {}
     sme = context.get("sme") or {}
 
-    if ledger.get("transaction_count"):
+    greeting_words = {"hi", "hello", "hey", "yo", "yoo", "hii", "helo", "sup", "namaste"}
+    if q_low.strip("!?. ") in greeting_words:
+        net_cf = float(ledger.get("net_cashflow", 0) or 0)
+        sub_yr = float(ledger.get("subscription_annual_runrate", 0) or 0)
+        risk = int(fraud.get("risk_score", 0) or 0)
+        reply_text = (
+            f"ArthaLedger Deterministic Copilot ready (Financial Health Index: {health['score']}/100 - {health['grade']}).\n\n"
+            f"Live Telemetry Loaded:\n"
+            f"- [CASHFLOW] Monthly surplus Rs.{net_cf:,.0f} (Recurring subscriptions tracked: Rs.{sub_yr:,.0f}/yr).\n"
+            f"- [FRAUD-AUDIT] Active payment audit risk: {risk}/100.\n\n"
+            "Ask a specific question (for example: 'Audit my subscriptions', 'How much tax can I save?', "
+            "'Verify this UPI scam link', or click 'Full Money Audit' above). To enable live conversational LLM + screenshot OCR, add a Gemini or BharatCode GLM 5.3 Flash key under AI Keys."
+        )
+        extracted = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply_text)))
+        return {
+            "success": True,
+            "provider_used": "deterministic",
+            "model_used": "artha-deterministic-citation-v2",
+            "reply": reply_text,
+            "citations": extracted,
+            "actions": actions[:2],
+            "health_score": health,
+        }
+
+    is_full_audit = any(w in q_low for w in ("full", "audit", "summarize", "summary", "overall", "health", "all"))
+    want_cash = is_full_audit or any(w in q_low for w in ("spend", "budget", "cashflow", "sub", "txn", "money", "save", "afford", "expense", "upi"))
+    want_tax = is_full_audit or any(w in q_low for w in ("tax", "regime", "80c", "nps", "salary", "ctc", "deduction", "take-home"))
+    want_fraud = is_full_audit or any(w in q_low for w in ("scam", "fraud", "phishing", "kyc", "collect", "link", "pin", "safe"))
+    want_mkt = is_full_audit or any(w in q_low for w in ("sip", "fund", "amfi", "market", "backtest", "sharpe", "nifty", "stock", "invest", "regular", "direct"))
+    want_sme = is_full_audit or any(w in q_low for w in ("gst", "sme", "invoice", "itc", "business", "runway", "receivable"))
+    if not (want_cash or want_tax or want_fraud or want_mkt or want_sme):
+        want_cash = want_tax = True
+
+    bullets: List[str] = [f"Financial Health Index: {health['score']}/100 ({health['grade']})."]
+
+    if want_cash and ledger.get("transaction_count"):
         spent = float(ledger.get("total_spent", 0))
         income = float(ledger.get("total_income", 0))
         net = float(ledger.get("net_cashflow", 0))
@@ -161,10 +195,10 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
             bullets.append(
                 f"[SUB-BURN] Recurring subscriptions total Rs.{sub_yr:,.0f}/year annualized across flagged debits."
             )
-        for anom in (ledger.get("anomalies") or [])[:3]:
+        for anom in (ledger.get("anomalies") or [])[:4]:
             bullets.append(f"[{anom['citation']}] {anom['reason']}")
 
-    if tax.get("recommended_regime"):
+    if want_tax and tax.get("recommended_regime"):
         rec = "New Tax Regime (Sec 115BAC)" if tax["recommended_regime"] == "NEW_REGIME" else "Old Tax Regime"
         bullets.append(
             f"[TAX-115BAC][TAX-BREAKEVEN] Optimal regime: {rec} "
@@ -173,15 +207,15 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
             f"Old Regime requires Rs.{tax.get('breakeven_deduction', 0):,.0f} deductions to beat Budget 2025 New Regime."
         )
 
-    if fraud.get("verdict"):
+    if want_fraud and fraud.get("verdict"):
         bullets.append(
             f"[FRAUD-AUDIT] Active audit verdict: {fraud['verdict']} (Risk {fraud['risk_score']}/100). "
             f"{fraud['recommended_action']}"
         )
-        for fl in (fraud.get("flags") or [])[:2]:
+        for fl in (fraud.get("flags") or [])[:3]:
             bullets.append(f"[{fl['citation']}] {fl['detail']}")
 
-    if backtest.get("final_equity"):
+    if want_mkt and backtest.get("final_equity"):
         drag = backtest.get("direct_vs_regular") or {}
         bullets.append(
             f"[BACKTEST-PAPER][MF-DIRECT-DRAG] {backtest.get('label')}: Strategy {backtest.get('total_return_pct')}% "
@@ -190,7 +224,7 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
             f"Rs.{drag.get('commission_leakage', 0):,.0f} fee drag over {drag.get('years', 15)} years."
         )
 
-    if sme.get("grand_invoice_total"):
+    if want_sme and sme.get("grand_invoice_total"):
         bullets.append(
             f"[GST-ITC-SET][WC-STRESS-90D] SME Invoice Rs.{sme['grand_invoice_total']:,.0f}, Net GST Payable after ITC "
             f"Rs.{sme['net_gst_payable']:,.0f}, 35% Delayed-Receivable Stress Runway: {sme['stress_runway_days']} days."
@@ -199,10 +233,10 @@ def _build_deterministic_answer(question: str, context: Dict[str, Any], has_imag
     if has_image:
         bullets.append(
             "[VISION-PENDING] Payment/receipt screenshot attached. Add a Gemini or BharatCode GLM 5.3 Flash key "
-            "in AI Keys & Model (session-only) to run multimodal OCR inspection."
+            "in AI Keys (session-only) to run multimodal OCR inspection."
         )
 
-    reply_text = f"Executive Audit for: \"{question.strip()[:120]}\"\n\n" + "\n".join(f"- {b}" for b in bullets)
+    reply_text = f"Grounded Telemetry Response ({q_clean[:90]}):\n\n" + "\n".join(f"- {b}" for b in bullets)
     extracted = sorted(set(re.findall(r"\[([A-Z0-9_-]{3,24})\]", reply_text)) | set(base_citations))
 
     return {

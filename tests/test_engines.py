@@ -54,22 +54,25 @@ class TestFinancialEngines(unittest.TestCase):
     def test_sms_ledger_parses_credits_debits_anomalies_and_csv(self):
         feed = "\n".join([
             "Credited Rs.20000.00 Salary from Example Corp on 01-Nov-2026.",
+            "Credited Rs.15000.00 via IMPS from Guardian Allowance on 02-Nov-2026.",
             "Debited Rs.200.00 via UPI to Metro Transit on 02-Nov-2026.",
             "Debited Rs.250.00 via UPI to Canteen Tiffin on 03-Nov-2026.",
-            "Debited Rs.199.00 via UPI to Spotify Premium on 04-Nov-2026.",
+            "Debited Rs.199.00 via UPI Autodebit to Spotify Premium Subscription on 04-Nov-2026.",
             "Debited Rs.5000.00 via UPI to Croma Purchase on 05-Nov-2026.",
         ])
         res = parse_sms_ledger(feed, monthly_budget_target=10000)
-        self.assertEqual(res["transaction_count"], 5)
-        self.assertEqual(res["total_income"], 20000.0)
+        self.assertEqual(res["transaction_count"], 6)
+        self.assertEqual(res["total_income"], 35000.0)
         self.assertEqual(res["total_spent"], 5649.0)
-        self.assertEqual(res["net_cashflow"], 14351.0)
+        self.assertEqual(res["subscription_annual_runrate"], 2388.0)
+        self.assertEqual(res["transactions"][1]["merchant"], "Guardian Allowance")
+        self.assertEqual(res["transactions"][4]["category"], "Subscriptions & Cloud")
         citations = {a["citation"] for a in res["anomalies"]}
-        self.assertIn("TXN-04", citations)  # subscription flagged
-        self.assertIn("TXN-05", citations)  # outlier spend flagged
+        self.assertIn("TXN-05", citations)
+        self.assertIn("TXN-06", citations)
         csv_txt = export_ledger_csv(res["transactions"])
         self.assertIn("Citation ID,Date,Type,Category", csv_txt)
-        self.assertIn("TXN-05", csv_txt)
+        self.assertIn("TXN-06", csv_txt)
 
     def test_fraud_shield_detects_phishing_collect_scam_and_safe_uri(self):
         scam = analyze_payment_risk(
@@ -164,6 +167,11 @@ class TestFinancialEngines(unittest.TestCase):
         self.assertEqual(amfi_bt["data_source"], "live_amfi_public_nav")
         self.assertEqual(amfi_bt["periods"], 20)
         self.assertGreater(amfi_bt["final_equity"], 0)
+
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "", "BHARATCODE_API_KEY": ""}, clear=False):
+            yo_res = ask_financial_copilot("yoo", context={"ledger": parsed, "fraud": scam}, provider="auto")
+        self.assertNotIn("SME Invoice", yo_res["reply"])
+        self.assertIn("Live Telemetry Loaded", yo_res["reply"])
 
 
 if __name__ == "__main__":

@@ -16,31 +16,31 @@ DATE_RE = re.compile(
     r"\b(\d{1,2}[-/][A-Za-z0-9]{2,3}(?:[-/]\d{2,4})?|\d{4}-\d{2}-\d{2})\b"
 )
 MERCHANT_TO_RE = re.compile(
-    r"(?:to|at|towards|vpa|info|for)\s+([A-Za-z0-9@._& -]{2,40}?)(?:\s+(?:on|via|ref|utr|upi|avl|bal|$)|[.,;]|$)",
+    r"(?:to|at|towards|from|vpa|info|for)\s+([A-Za-z0-9@._& -]{2,40}?)(?:\s+(?:on|via|ref|utr|upi|avl|bal|$)|[.,;]|$)",
     re.IGNORECASE,
 )
 
 CATEGORY_RULES: List[tuple[str, tuple[str, ...]]] = [
+    ("Subscriptions & Cloud", ("autodebit", "subscription", "netflix", "spotify", "youtube", "github", "vercel", "aws", "icloud", "prime", "hotstar", "streaming")),
     ("Food & Dining", ("swiggy", "zomato", "chai", "cafe", "bakery", "tiffin", "canteen", "restaurant", "dominos", "kfc")),
     ("Groceries & Essentials", ("blinkit", "zepto", "bigbasket", "dmart", "kirana", "milk", "dairy", "mart", "instamart")),
-    ("Transport & Fuel", ("uber", "ola", "rapido", "metro", "irctc", "petrol", "indian oil", "hpcl", "bpcl", "bus", "auto")),
-    ("Utilities & Telecom", ("jio", "airtel", "vi ", "bsnl", "electricity", "bescom", "tsspdcl", "water", "gas", "broadband", "recharge")),
-    ("Education & Books", ("udemy", "coursera", "book", "tuition", "college", "exam", "stationery", "xerox", "print")),
-    ("Subscriptions & Cloud", ("netflix", "spotify", "youtube", "github", "vercel", "aws", "icloud", "prime", "hotstar")),
-    ("Shopping & Electronics", ("amazon", "flipkart", "myntra", "robu", "croma", "electronics")),
-    ("Rent & Transfers", ("rent", "pg ", "hostel", "dad", "mom", "transfer", "imps", "neft")),
+    ("Transport & Fuel", ("uber", "ola", "rapido", "metro", "irctc", "petrol", "indian oil", "hpcl", "bpcl", "bus", "auto", "rail", "transit")),
+    ("Utilities & Telecom", ("jio", "airtel", "bsnl", "electricity", "bescom", "tsspdcl", "water", "gas", "broadband", "recharge")),
+    ("Education & Books", ("udemy", "coursera", "book", "textbook", "tuition", "college", "exam", "stationery", "xerox", "print")),
+    ("Shopping & Electronics", ("amazon", "flipkart", "myntra", "robu", "croma", "electronics", "monitor")),
+    ("Rent & Transfers", ("rent", "pg", "hostel", "dad", "mom", "transfer", "imps", "neft")),
 ]
 
 
 def _classify_merchant(line_lower: str, tx_type: str) -> str:
     if tx_type == "credit":
-        if any(k in line_lower for k in ("salary", "stipend", "freelance", "invoice", "settlement", "client")):
+        if any(re.search(rf"\b{re.escape(k)}\b", line_lower) for k in ("salary", "stipend", "freelance", "invoice", "settlement", "client")):
             return "Earned Income"
-        if any(k in line_lower for k in ("refund", "cashback", "reversal")):
+        if any(re.search(rf"\b{re.escape(k)}\b", line_lower) for k in ("refund", "cashback", "reversal")):
             return "Refund & Cashback"
         return "Allowance & Transfers In"
     for cat, keywords in CATEGORY_RULES:
-        if any(k in line_lower for k in keywords):
+        if any(re.search(rf"\b{re.escape(k)}\b", line_lower) for k in keywords):
             return cat
     return "General & Misc"
 

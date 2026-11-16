@@ -516,8 +516,9 @@
         if (!data) return;
         STATE.telemetry.backtest = data;
 
-        document.getElementById('kpiBacktestReturn').textContent = `${data.total_return_pct}% / S:${data.sharpe_ratio}`;
-        document.getElementById('kpiBacktestMeta').textContent = `${data.label.slice(0, 34)} (${data.data_source})`;
+        document.getElementById('kpiBacktestReturn').textContent = `${data.total_return_pct}% | S:${data.sharpe_ratio}`;
+        const srcBadge = data.data_source === 'live_amfi_public_nav' ? 'LIVE AMFI NAV' : 'PROXY SERIES';
+        document.getElementById('kpiBacktestMeta').textContent = `${data.symbol} | ${srcBadge}`;
 
         const row = document.getElementById('backtestMetricsRow');
         row.replaceChildren();
