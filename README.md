@@ -4,7 +4,7 @@
 Built for **Arthaton 2026** (`AI for Finance`).
 
 > **Live Production App:** https://arthaledger.vercel.app/  
-> **Demo Video (YouTube):** *[Upload under-5-minute working walkthrough to YouTube and paste Public/Unlisted URL here before submitting]*
+> **Demo Video (Google Drive - 3m 30s Live Walkthrough, Anyone with link):** https://drive.google.com/file/d/1dOQRfJc-i9gOa8FTXZWwCvh5gDmClFef/view?usp=sharing
 
 ---
 
