@@ -291,7 +291,7 @@
             if (STATE.telemetry.sip) {
                 drawDualLineChart(
                     'wealthChart', 'wealthChartTip', STATE.telemetry.sip.series,
-                    'nominal_value', 'real_value_today_inr', 'Nominal Value', 'Real Purchasing Power',
+                    'nominal_value', 'real_value_today_inr', 'Nominal', 'Real Value',
                     green, amber,
                     (p) => `Yr ${p.year}: Nom ${fmtInr(p.nominal_value)} | Real ${fmtInr(p.real_value_today_inr)}`
                 );

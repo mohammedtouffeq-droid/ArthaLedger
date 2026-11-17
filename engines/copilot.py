@@ -250,6 +250,8 @@ def _call_gemini(
     img_mime: str,
     img_b64: str,
     history: List[Dict[str, str]] | None = None,
+    timeout_s: int = 12,
+    json_mode: bool = False,
 ) -> str:
     chosen = model if SAFE_MODEL_RE.match(model or "") and not model.startswith(("gemini-2.5", "gemini-2.0", "gemini-1.")) else GEMINI_MODELS[0]
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{chosen}:generateContent"
@@ -268,10 +270,13 @@ def _call_gemini(
         parts.append({"inlineData": {"mimeType": img_mime, "data": img_b64}})
     contents.append({"role": "user", "parts": parts})
 
+    gen_cfg: Dict[str, Any] = {"temperature": 0.2, "maxOutputTokens": 900}
+    if json_mode:
+        gen_cfg["responseMimeType"] = "application/json"
     payload = {
         "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": contents,
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
+        "generationConfig": gen_cfg,
     }
     req = urllib.request.Request(
         url,
@@ -279,7 +284,7 @@ def _call_gemini(
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=14) as resp:
+    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     candidates = data.get("candidates") or []
     parts_out = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
@@ -592,9 +597,12 @@ def run_financial_council(
             "fraud": {"verdict": verdict, "score": risk_score, "amt": fraud_impact},
             "quant": {"fee_drag_yr": fee_drag_ann, "corr": cmp_data.get("correlation"), "mc_prob": mc.get("goal_success_prob_pct"), "news": news.get("regime")},
         }, ensure_ascii=True)
-        for chosen_m in GEMINI_MODELS:
+        for chosen_m in ("gemini-3.5-flash-lite", "gemini-3-flash-preview"):
             try:
-                raw_out = _call_gemini(gemini_key, chosen_m, council_prompt, ctx_compact, "", "", history=[])
+                raw_out = _call_gemini(
+                    gemini_key, chosen_m, council_prompt, ctx_compact, "", "",
+                    history=[], timeout_s=7, json_mode=True,
+                )
                 parsed = _extract_json_block(raw_out)
                 if parsed.get("ca_brief") and parsed.get("fraud_brief") and parsed.get("quant_brief"):
                     ca_brief = str(parsed["ca_brief"]).strip()
