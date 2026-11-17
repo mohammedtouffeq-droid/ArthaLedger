@@ -1,6 +1,8 @@
 """Indian Income Tax Optimizer (Budget 2025 + Breakeven + Slab Waterfall), Goal SIP, Capital Gains & Loan EMI Engine."""
 from __future__ import annotations
 
+import math
+import random
 from typing import Any, Dict, List
 
 
@@ -345,4 +347,76 @@ def simulate_emi_prepayment(
         "prepay_total_interest": round(total_interest_prepay, 2),
         "months_saved": max(0, n - months_with_prepay),
         "interest_saved": round(max(0.0, baseline_interest - total_interest_prepay), 2),
+    }
+
+
+def simulate_monte_carlo_wealth(
+    monthly_sip: float = 5000.0,
+    annual_return_pct: float = 12.0,
+    annual_volatility_pct: float = 16.0,
+    years: int = 10,
+    annual_step_up_pct: float = 10.0,
+    target_corpus_today_inr: float = 1000000.0,
+    inflation_pct: float = 6.0,
+    num_paths: int = 400,
+) -> Dict[str, Any]:
+    """Runs log-normal Geometric Brownian Motion Monte Carlo paths for P10/P50/P90 SIP outcomes & goal probability."""
+    sip0 = max(500.0, float(monthly_sip or 5000.0))
+    mu = max(0.0, min(0.30, float(annual_return_pct or 12.0) / 100.0))
+    sigma = max(0.04, min(0.45, float(annual_volatility_pct or 16.0) / 100.0))
+    yrs = max(1, min(30, int(years or 10)))
+    step = max(0.0, min(0.25, float(annual_step_up_pct or 0.0) / 100.0))
+    inf = max(0.0, min(0.15, float(inflation_pct or 6.0) / 100.0))
+    target_today = max(10000.0, float(target_corpus_today_inr or 1000000.0))
+    target_nominal = target_today * ((1.0 + inf) ** yrs)
+    paths = max(100, min(600, int(num_paths or 400)))
+
+    dt = 1.0 / 12.0
+    drift = (mu - 0.5 * (sigma ** 2)) * dt
+    vol_step = sigma * math.sqrt(dt)
+    rng = random.Random(42)
+
+    yearly_buckets: List[List[float]] = [[] for _ in range(yrs)]
+    for _ in range(paths):
+        wealth = 0.0
+        cur_sip = sip0
+        for y in range(yrs):
+            for _m in range(12):
+                shock = rng.gauss(0.0, 1.0)
+                growth = math.exp(drift + vol_step * shock)
+                wealth = (wealth + cur_sip) * growth
+            yearly_buckets[y].append(wealth)
+            cur_sip *= (1.0 + step)
+
+    series: List[Dict[str, Any]] = []
+    for y in range(yrs):
+        vals = sorted(yearly_buckets[y])
+        n = len(vals)
+        p10 = vals[max(0, int(0.10 * (n - 1)))]
+        p50 = vals[max(0, int(0.50 * (n - 1)))]
+        p90 = vals[max(0, int(0.90 * (n - 1)))]
+        yr_target = target_today * ((1.0 + inf) ** (y + 1))
+        series.append({
+            "year": y + 1,
+            "p10_bear": round(p10, 2),
+            "p50_median": round(p50, 2),
+            "p90_bull": round(p90, 2),
+            "goal_target": round(yr_target, 2),
+        })
+
+    terminal_vals = yearly_buckets[-1]
+    hits = sum(1 for v in terminal_vals if v >= target_nominal)
+    prob_pct = round((hits / len(terminal_vals)) * 100.0, 1)
+
+    return {
+        "success": True,
+        "num_paths": paths,
+        "years": yrs,
+        "volatility_pct": round(sigma * 100.0, 1),
+        "target_nominal": round(target_nominal, 2),
+        "goal_success_prob_pct": prob_pct,
+        "p10_terminal": series[-1]["p10_bear"],
+        "p50_terminal": series[-1]["p50_median"],
+        "p90_terminal": series[-1]["p90_bull"],
+        "series": series,
     }

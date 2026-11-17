@@ -11,7 +11,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from engines.copilot import ask_financial_copilot, compute_financial_health_score, extract_ledger_lines_from_pdf
+from engines.copilot import (
+    ask_financial_copilot,
+    compute_financial_health_score,
+    extract_ledger_lines_from_pdf,
+    run_financial_council,
+)
 from engines.fraud_shield import analyze_payment_risk, decode_qr_from_bytes, generate_sample_qr_png
 from engines.market_backtest import (
     compare_amfi_funds,
@@ -21,12 +26,13 @@ from engines.market_backtest import (
     simulate_direct_vs_regular,
 )
 from engines.sme_gst import compute_gst_and_cashflow
-from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
+from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, generate_sample_bank_pdf, parse_sms_ledger
 from engines.tax_wealth import (
     calculate_indian_tax,
     estimate_equity_mf_tax,
     simulate_emi_prepayment,
     simulate_ltcg_harvesting,
+    simulate_monte_carlo_wealth,
     simulate_sip_wealth,
     solve_goal_sip,
 )
@@ -301,6 +307,54 @@ class TestFinancialEngines(unittest.TestCase):
         self.assertTrue(news["success"])
         self.assertLess(news["sentiment_score"], 0)
         self.assertEqual(news["regime"], "DEFENSIVE")
+
+    def test_v6_monte_carlo_sample_pdf_and_3agent_council(self):
+        import base64
+
+        mc = simulate_monte_carlo_wealth(
+            monthly_sip=10000,
+            annual_return_pct=12.0,
+            annual_volatility_pct=16.0,
+            years=10,
+            annual_step_up_pct=10.0,
+            target_corpus_today_inr=1200000,
+            inflation_pct=6.0,
+            num_paths=400,
+        )
+        self.assertTrue(mc["success"])
+        self.assertEqual(mc["num_paths"], 400)
+        self.assertEqual(len(mc["series"]), 10)
+        self.assertLessEqual(mc["p10_terminal"], mc["p50_terminal"])
+        self.assertLessEqual(mc["p50_terminal"], mc["p90_terminal"])
+        self.assertGreaterEqual(mc["goal_success_prob_pct"], 0.0)
+        self.assertLessEqual(mc["goal_success_prob_pct"], 100.0)
+
+        pdf_bytes = generate_sample_bank_pdf()
+        self.assertTrue(pdf_bytes.startswith(b"%PDF-1.4"))
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=False):
+            ext = extract_ledger_lines_from_pdf(
+                pdf_data="data:application/pdf;base64," + base64.b64encode(pdf_bytes).decode("ascii"),
+                provider="deterministic",
+            )
+        self.assertTrue(ext["success"])
+        self.assertIn("28500.00", ext["lines"])
+        self.assertIn("Spotify", ext["lines"])
+
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=False):
+            council = run_financial_council(
+                context={
+                    "ledger": {"net_cashflow": 12000, "subscription_annual_runrate": 10176},
+                    "tax": {"recommended_regime": "NEW_REGIME", "net_tax_savings": 26260},
+                    "fraud": {"risk_score": 100, "verdict": "HIGH_RISK_SCAM", "parsed_upi": {"amount": "19999"}},
+                    "backtest": {"direct_vs_regular": {"commission_leakage": 483320}},
+                    "monte_carlo": mc,
+                },
+                provider="deterministic",
+            )
+        self.assertTrue(council["success"])
+        self.assertEqual(len(council["agents"]), 3)
+        self.assertGreater(council["total_annual_rupee_impact"], 50000)
+        self.assertEqual(len(council["priority_plan"]), 3)
 
 
 if __name__ == "__main__":

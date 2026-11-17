@@ -509,3 +509,112 @@ def extract_ledger_lines_from_pdf(
         "lines": "",
         "error": "Could not extract transactions from scanned/compressed PDF offline. Configure Gemini API key in AI Keys or export CSV.",
     }
+
+
+def _extract_json_block(text: str) -> Dict[str, Any]:
+    raw = str(text or "").strip()
+    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not m:
+        return {}
+    try:
+        parsed = json.loads(m.group(0))
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def run_financial_council(
+    context: Dict[str, Any] | None = None,
+    provider: str = "auto",
+    model: str = "",
+    user_api_key: str = "",
+) -> Dict[str, Any]:
+    """Orchestrates 3 specialist AI financial agents (CA Tax/Cashflow, Cyber Fraud, Quant Strategist) grounded in live telemetry."""
+    ctx = context if isinstance(context, dict) else {}
+    ledger = ctx.get("ledger") or {}
+    tax = ctx.get("tax") or {}
+    fraud = ctx.get("fraud") or {}
+    backtest = ctx.get("backtest") or {}
+    cmp_data = ctx.get("comparison") or {}
+    harvest = ctx.get("harvest") or {}
+    mc = ctx.get("monte_carlo") or {}
+    news = ctx.get("news_impact") or {}
+
+    sub_annual = float(ledger.get("subscription_annual_runrate", 0) or 0)
+    tax_save = float(tax.get("net_tax_savings", 0) or 0)
+    harvest_save_ann = round(float(harvest.get("net_tax_saved", 0) or 0) / max(1, int(harvest.get("years", 5) or 5)), 0)
+    fee_drag_ann = round(float((backtest.get("direct_vs_regular") or {}).get("commission_leakage", 0) or 0) / 15.0, 0)
+    ca_impact = int(round(sub_annual + tax_save + harvest_save_ann))
+    quant_impact = int(round(fee_drag_ann))
+
+    risk_score = int(float(fraud.get("risk_score", 0) or 0))
+    verdict = str(fraud.get("verdict") or "UNSCANNED")
+    req_amt = float((fraud.get("parsed_upi") or {}).get("amount") or 0)
+    fraud_impact = int(round(req_amt)) if risk_score >= 55 and req_amt > 0 else (19999 if risk_score >= 55 else 0)
+    total_impact = ca_impact + quant_impact + fraud_impact
+
+    det_ca = (
+        f"Optimal {tax.get('recommended_regime', 'NEW_REGIME')} saves Rs.{tax_save:,.0f}/yr; "
+        f"recurring subscriptions burn Rs.{sub_annual:,.0f}/yr ([TXN-05]), and Sec 112A LTCG harvesting saves Rs.{harvest_save_ann:,.0f}/yr [TAX-HARVEST-112A]."
+    )
+    det_fraud = (
+        f"Active verdict {verdict} ({risk_score}/100) [FRAUD-AUDIT]. "
+        + ("Decline collect/APK immediately and report sender on 1930 / Chakshu." if risk_score >= 55 else "Maintain strict UPI PIN discipline.")
+    )
+    det_quant = (
+        f"Switching Regular->Direct saves Rs.{fee_drag_ann:,.0f}/yr [MF-DIRECT-DRAG]; "
+        f"AMFI correlation r={cmp_data.get('correlation', '--')} [MF-CORR-OVERLAP], Monte Carlo Goal Hit {mc.get('goal_success_prob_pct', '--')}%, Macro {news.get('regime', 'BALANCED')}."
+    )
+    det_plan = [
+        f"1. Cancel idle subscriptions & execute {tax.get('recommended_regime', 'NEW_REGIME')} plan (+Rs.{ca_impact:,}/yr).",
+        f"2. Enforce Threat Shield rule: {verdict} ({risk_score}/100) [FRAUD-AUDIT].",
+        f"3. Keep Direct Plan MF + diversify correlation r={cmp_data.get('correlation', '--')} (+Rs.{quant_impact:,}/yr).",
+    ]
+
+    prov = str(provider or "auto").strip().lower()
+    gemini_key = (user_api_key if prov in ("gemini", "auto") else "") or os.environ.get("GEMINI_API_KEY", "").strip()
+    engine_used = "deterministic-council-v1"
+    ca_brief, fraud_brief, quant_brief, priority_plan = det_ca, det_fraud, det_quant, det_plan
+
+    if prov != "deterministic" and gemini_key:
+        council_prompt = (
+            "Act as ArthaLedger's 3-Agent Financial Council. Using ONLY numbers from Context Telemetry JSON, "
+            "return strictly one valid JSON object with exact keys: "
+            '{"ca_brief": "<=35 words citing [TAX-115BAC]/[TXN-*]", '
+            '"fraud_brief": "<=35 words citing [FRAUD-AUDIT]", '
+            '"quant_brief": "<=35 words citing [MF-DIRECT-DRAG]/[BACKTEST-PAPER]", '
+            '"priority_plan": ["step 1", "step 2", "step 3"]}.'
+        )
+        ctx_compact = json.dumps({
+            "ledger": {"surplus": ledger.get("net_cashflow"), "subs_yr": sub_annual},
+            "tax": {"rec": tax.get("recommended_regime"), "save": tax_save},
+            "harvest": {"saved_yr": harvest_save_ann},
+            "fraud": {"verdict": verdict, "score": risk_score, "amt": fraud_impact},
+            "quant": {"fee_drag_yr": fee_drag_ann, "corr": cmp_data.get("correlation"), "mc_prob": mc.get("goal_success_prob_pct"), "news": news.get("regime")},
+        }, ensure_ascii=True)
+        for chosen_m in GEMINI_MODELS:
+            try:
+                raw_out = _call_gemini(gemini_key, chosen_m, council_prompt, ctx_compact, "", "", history=[])
+                parsed = _extract_json_block(raw_out)
+                if parsed.get("ca_brief") and parsed.get("fraud_brief") and parsed.get("quant_brief"):
+                    ca_brief = str(parsed["ca_brief"]).strip()
+                    fraud_brief = str(parsed["fraud_brief"]).strip()
+                    quant_brief = str(parsed["quant_brief"]).strip()
+                    if isinstance(parsed.get("priority_plan"), list) and parsed["priority_plan"]:
+                        priority_plan = [str(x).strip() for x in parsed["priority_plan"][:3]]
+                    engine_used = f"gemini ({chosen_m})"
+                    break
+            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ValueError):
+                continue
+
+    return {
+        "success": True,
+        "engine_used": engine_used,
+        "total_annual_rupee_impact": total_impact,
+        "agents": [
+            {"role": "Chartered Accountant Agent", "tag": f"+Rs.{ca_impact:,}/yr", "brief": ca_brief, "pillar": "Tax & Burn"},
+            {"role": "Cyber Forensics Agent", "tag": f"Shield: {verdict}", "brief": fraud_brief, "pillar": "Fraud Defense"},
+            {"role": "Quant Macro Strategist", "tag": f"+Rs.{quant_impact:,}/yr", "brief": quant_brief, "pillar": "Wealth & Risk"},
+        ],
+        "priority_plan": priority_plan,
+    }

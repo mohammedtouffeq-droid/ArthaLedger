@@ -243,3 +243,48 @@ def export_ledger_csv(transactions: List[Dict[str, Any]]) -> str:
             tx.get("amount", 0.0),
         ])
     return buf.getvalue()
+
+
+def generate_sample_bank_pdf() -> bytes:
+    """Generates a valid synthetic Indian bank statement PDF binary in pure Python for live judge testing."""
+    lines = [
+        "ARTHALEDGER SYNTHETIC INDIAN BANK PASSBOOK STATEMENT (DEMO ONLY)",
+        "Account Holder: Artha Demo Student | Period: 01-Nov-2026 to 15-Nov-2026",
+        "01-Nov-2026 | Credited Rs.28500.00 towards Internship Stipend & Freelance Settlement.",
+        "03-Nov-2026 | Debited Rs.449.00 via UPI to Swiggy Instamart Order.",
+        "05-Nov-2026 | Debited Rs.199.00 via UPI Autodebit to Spotify Premium Subscription.",
+        "07-Nov-2026 | Debited Rs.649.00 via UPI Autodebit to Cloud Streaming Bundle Subscription.",
+        "09-Nov-2026 | Debited Rs.2150.00 via UPI to Engineering Textbooks & Lab Printouts.",
+        "12-Nov-2026 | Debited Rs.5200.00 via UPI to Hostel Mess & Room Rent Share.",
+    ]
+    ops = ["BT", "/F1 10 Tf", "40 740 Td"]
+    for idx, line in enumerate(lines):
+        safe = line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        if idx > 0:
+            ops.append("0 -18 Td")
+        ops.append(f"({safe}) Tj")
+    ops.append("ET")
+    stream_bytes = "\n".join(ops).encode("latin-1")
+
+    objs = [
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
+        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n",
+        f"4 0 obj << /Length {len(stream_bytes)} >> stream\n".encode("latin-1") + stream_bytes + b"\nendstream endobj\n",
+        b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+    ]
+
+    buf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objs:
+        offsets.append(len(buf))
+        buf.extend(obj)
+
+    xref_pos = len(buf)
+    buf.extend(f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode("latin-1"))
+    for off in offsets[1:]:
+        buf.extend(f"{off:010d} 00000 n \n".encode("latin-1"))
+    buf.extend(
+        f"trailer << /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("latin-1")
+    )
+    return bytes(buf)

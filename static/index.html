@@ -101,6 +101,7 @@
                         </select>
                     </label>
                     <button type="button" class="btn btn-primary" id="btnLoadPersona">Load Scenario</button>
+                    <button type="button" class="btn btn-outline" id="btnDownloadDossier">Export Dossier</button>
                     <button type="button" class="btn btn-outline" id="btnPrintDossier">Print Dossier</button>
                     <button type="button" class="btn btn-outline" id="btnToggleTheme">Dark Mode</button>
                     <button type="button" class="btn btn-outline" id="btnOpenSettings">AI Keys</button>
@@ -189,6 +190,7 @@
                                                 Import CSV / PDF
                                                 <input id="ledgerCsvUpload" type="file" accept=".csv,text/csv,.tsv,.txt,application/pdf,.pdf">
                                             </label>
+                                            <button type="button" class="btn btn-secondary" id="btnScanDemoPdf">Test Sample PDF</button>
                                             <button type="button" class="btn btn-primary" id="btnAnalyzeLedger">Run Audit</button>
                                             <button type="button" class="btn btn-outline" id="btnExportCsv">Export CSV</button>
                                         </div>
@@ -429,6 +431,11 @@
                                     </div>
                                     <div class="callout-box" id="goalAndCgSummary">Goal &amp; Capital Gains readout calculates here.</div>
                                     <div class="callout-box hidden" id="harvestSummaryBox"></div>
+                                    <div class="callout-box hidden" id="mcProbBanner"></div>
+                                    <div class="chart-wrap mt-8">
+                                        <canvas id="mcChart" class="chart-canvas" height="190"></canvas>
+                                        <div class="chart-tooltip hidden" id="mcChartTip"></div>
+                                    </div>
                                 </div>
 
                                 <div class="panel">
@@ -687,6 +694,7 @@
                     </div>
 
                     <div class="preset-bar">
+                        <button type="button" class="chip-btn" id="btnRunCouncil">Run 3-Agent Council</button>
                         <button type="button" class="chip-btn" data-copilot-q="Audit my cashflow anomalies, tax breakeven, and recommend top 2 concrete savings actions.">Full Money Audit</button>
                         <button type="button" class="chip-btn" data-copilot-q="Analyze my active UPI fraud check and explain the red-flag triggers.">Verify Scam Risk</button>
                         <button type="button" class="chip-btn" data-copilot-q="Review my live AMFI fund Sharpe ratio, Direct vs Regular fee drag, and SME runway.">AMFI &amp; SME Audit</button>

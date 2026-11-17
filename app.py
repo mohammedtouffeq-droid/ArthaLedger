@@ -20,6 +20,7 @@ from engines.copilot import (
     compute_financial_health_score,
     extract_ledger_lines_from_pdf,
     extract_payment_text_from_image,
+    run_financial_council,
 )
 from engines.fraud_shield import analyze_payment_risk, decode_qr_from_bytes, generate_sample_qr_png
 from engines.market_backtest import (
@@ -31,12 +32,13 @@ from engines.market_backtest import (
     search_amfi_funds,
 )
 from engines.sme_gst import compute_gst_and_cashflow
-from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, parse_sms_ledger
+from engines.sms_ledger import csv_statement_to_lines, export_ledger_csv, generate_sample_bank_pdf, parse_sms_ledger
 from engines.tax_wealth import (
     calculate_indian_tax,
     estimate_equity_mf_tax,
     simulate_emi_prepayment,
     simulate_ltcg_harvesting,
+    simulate_monte_carlo_wealth,
     simulate_sip_wealth,
     solve_goal_sip,
 )
@@ -210,6 +212,11 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
                 self._send_json({"success": False, "error": "QR generator unavailable in current runtime."}, status=503)
                 return
             self._send_bytes(png_bytes, "image/png", status=200)
+            return
+
+        if path == "/api/ledger/sample_pdf":
+            pdf_bytes = generate_sample_bank_pdf()
+            self._send_bytes(pdf_bytes, "application/pdf", status=200)
             return
 
         if path in ("/", "/index.html") or path.startswith("/static/"):
@@ -395,11 +402,13 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
             annual_ret = _num(body.get("annual_return_pct"), 12.0)
             yrs = _int_val(body.get("years"), 10)
             gain_amt = _num(body.get("gain_amount"), 250000.0)
+            target_today = _num(body.get("target_today_inr"), 1000000.0)
+            infl = _num(body.get("inflation_pct"), 6.0)
             goal = solve_goal_sip(
-                target_corpus_today_inr=_num(body.get("target_today_inr"), 1000000.0),
+                target_corpus_today_inr=target_today,
                 annual_return_pct=annual_ret,
                 years=yrs,
-                inflation_pct=_num(body.get("inflation_pct"), 6.0),
+                inflation_pct=infl,
             )
             cap_gains = estimate_equity_mf_tax(
                 gain_amount=gain_amt,
@@ -412,7 +421,23 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
                 years=min(yrs, 5),
                 annual_return_pct=annual_ret,
             )
-            self._send_json({"success": True, "goal": goal, "capital_gains_tax": cap_gains, "harvest": harvest})
+            mc = simulate_monte_carlo_wealth(
+                monthly_sip=_num(body.get("monthly_sip"), 5000.0),
+                annual_return_pct=annual_ret,
+                annual_volatility_pct=_num(body.get("volatility_pct"), 16.0),
+                years=yrs,
+                annual_step_up_pct=_num(body.get("annual_step_up_pct"), 10.0),
+                target_corpus_today_inr=target_today,
+                inflation_pct=infl,
+                num_paths=400,
+            )
+            self._send_json({
+                "success": True,
+                "goal": goal,
+                "capital_gains_tax": cap_gains,
+                "harvest": harvest,
+                "monte_carlo": mc,
+            })
             return
 
         if path == "/api/market/compare":
@@ -480,6 +505,17 @@ class ArthaLedgerHandler(BaseHTTPRequestHandler):
                 image_data=str(body.get("image_data", "")),
                 image_mime=str(body.get("image_mime", "image/png")),
                 history=history,
+            )
+            self._send_json(res, status=200 if res.get("success") else 400)
+            return
+
+        if path == "/api/copilot/council":
+            session_key = str(self.headers.get("X-User-AI-Key", "") or body.get("user_api_key", "")).strip()
+            res = run_financial_council(
+                context=body.get("context") if isinstance(body.get("context"), dict) else {},
+                provider=str(body.get("provider", "auto")),
+                model=str(body.get("model", "")),
+                user_api_key=session_key,
             )
             self._send_json(res, status=200 if res.get("success") else 400)
             return

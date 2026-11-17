@@ -282,6 +282,54 @@ class TestArthaLedgerHttpApi(unittest.TestCase):
         self.assertEqual(pdf_res["total_income"], 50000.0)
         self.assertEqual(pdf_res["total_spent"], 1200.0)
 
+    def test_v6_sample_pdf_monte_carlo_and_3agent_council_endpoints(self):
+        import base64
+        from unittest.mock import patch
+
+        with urllib.request.urlopen(f"{self.base}/api/ledger/sample_pdf", timeout=6) as r:
+            self.assertEqual(r.status, 200)
+            self.assertEqual(r.headers.get("Content-Type"), "application/pdf")
+            sample_pdf = r.read()
+        self.assertTrue(sample_pdf.startswith(b"%PDF-1.4"))
+
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=False):
+            p_code, p_res = self._post("/api/ledger/parse_pdf", {
+                "pdf_data": "data:application/pdf;base64," + base64.b64encode(sample_pdf).decode("ascii"),
+                "monthly_budget_target": 15000,
+                "provider": "deterministic",
+            })
+        self.assertEqual(p_code, 200)
+        self.assertEqual(p_res["total_income"], 28500.0)
+        self.assertGreater(p_res["subscription_annual_runrate"], 0)
+
+        g_code, g_res = self._post("/api/wealth/goal", {
+            "target_today_inr": 1000000,
+            "monthly_sip": 8000,
+            "years": 10,
+            "annual_return_pct": 12.0,
+            "volatility_pct": 16.0,
+        })
+        self.assertEqual(g_code, 200)
+        mc = g_res["monte_carlo"]
+        self.assertEqual(mc["num_paths"], 400)
+        self.assertLessEqual(mc["p10_terminal"], mc["p50_terminal"])
+        self.assertLessEqual(mc["p50_terminal"], mc["p90_terminal"])
+
+        with patch.dict("os.environ", {"GEMINI_API_KEY": ""}, clear=False):
+            c_code, council = self._post("/api/copilot/council", {
+                "provider": "deterministic",
+                "context": {
+                    "ledger": p_res,
+                    "fraud": {"verdict": "HIGH_RISK_SCAM", "risk_score": 100},
+                    "tax": {"recommended_regime": "NEW_REGIME", "net_tax_savings": 26260},
+                    "monte_carlo": mc,
+                },
+            })
+        self.assertEqual(c_code, 200)
+        self.assertTrue(council["success"])
+        self.assertEqual(len(council["agents"]), 3)
+        self.assertGreater(council["total_annual_rupee_impact"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

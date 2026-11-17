@@ -13,6 +13,8 @@
             tax: null,
             sip: null,
             emi: null,
+            monte_carlo: null,
+            council: null,
             backtest: null,
             comparison: null,
             news_impact: null,
@@ -203,7 +205,7 @@
         }
     }
 
-    function drawDualLineChart(canvasId, tipId, series, keyA, keyB, labelA, labelB, colorA, colorB, formatTip) {
+    function drawDualLineChart(canvasId, tipId, series, keyA, keyB, labelA, labelB, colorA, colorB, formatTip, extraLine) {
         const prep = prepareCanvas(canvasId);
         if (!prep) return;
         const { canvas, ctx, width, height } = prep;
@@ -217,10 +219,12 @@
         const padL = 62, padR = 14, padT = 28, padB = 22;
         const plotW = Math.max(90, width - padL - padR);
         const plotH = Math.max(70, height - padT - padB);
+        const keyC = extraLine && extraLine.key ? extraLine.key : '';
         const allVals = [];
         series.forEach((p) => {
             allVals.push(Number(p[keyA] || 0));
             if (keyB) allVals.push(Number(p[keyB] || 0));
+            if (keyC) allVals.push(Number(p[keyC] || 0));
         });
         const minV = Math.min(...allVals);
         const maxV = Math.max(minV + 1, ...allVals);
@@ -254,21 +258,24 @@
             ctx.stroke();
         }
 
+        if (keyC && extraLine.color) traceLine(keyC, extraLine.color);
         if (keyB) traceLine(keyB, colorB);
         traceLine(keyA, colorA);
 
         ctx.font = '11px IBM Plex Mono, monospace';
         ctx.fillStyle = colorA;
         ctx.fillText(labelA, padL, 16);
+        let nextX = padL + Math.ceil(ctx.measureText(labelA).width) + 18;
         if (keyB && labelB) {
-            const labelAXEnd = padL + Math.ceil(ctx.measureText(labelA).width) + 22;
-            const legendBX = Math.max(padL + 150, labelAXEnd);
+            const legendBX = Math.max(padL + 110, nextX);
             ctx.fillStyle = colorB;
-            if (legendBX + ctx.measureText(labelB).width <= width - 8) {
-                ctx.fillText(labelB, legendBX, 16);
-            } else {
-                ctx.fillText(labelB.slice(0, 14), legendBX, 16);
-            }
+            const bShort = legendBX + ctx.measureText(labelB).width <= width - 8 ? labelB : labelB.slice(0, 12);
+            ctx.fillText(bShort, legendBX, 16);
+            nextX = legendBX + Math.ceil(ctx.measureText(bShort).width) + 16;
+        }
+        if (keyC && extraLine.label && nextX + 40 < width) {
+            ctx.fillStyle = extraLine.color;
+            ctx.fillText(extraLine.label, nextX, 16);
         }
         if (tip && formatTip) attachLineHover(canvas, tip, series, xForIdx, formatTip);
     }
@@ -280,13 +287,24 @@
         const red = cssVar('--crimson', '#c82333');
         if (tabName === 'ledger' && STATE.telemetry.ledger) {
             drawBarChart('ledgerChart', 'ledgerChartTip', STATE.telemetry.ledger.categories);
-        } else if (tabName === 'tax' && STATE.telemetry.sip) {
-            drawDualLineChart(
-                'wealthChart', 'wealthChartTip', STATE.telemetry.sip.series,
-                'nominal_value', 'real_value_today_inr', 'Nominal Value', 'Real Purchasing Power',
-                green, amber,
-                (p) => `Yr ${p.year}: Nom ${fmtInr(p.nominal_value)} | Real ${fmtInr(p.real_value_today_inr)}`
-            );
+        } else if (tabName === 'tax') {
+            if (STATE.telemetry.sip) {
+                drawDualLineChart(
+                    'wealthChart', 'wealthChartTip', STATE.telemetry.sip.series,
+                    'nominal_value', 'real_value_today_inr', 'Nominal Value', 'Real Purchasing Power',
+                    green, amber,
+                    (p) => `Yr ${p.year}: Nom ${fmtInr(p.nominal_value)} | Real ${fmtInr(p.real_value_today_inr)}`
+                );
+            }
+            if (STATE.telemetry.monte_carlo && STATE.telemetry.monte_carlo.series) {
+                drawDualLineChart(
+                    'mcChart', 'mcChartTip', STATE.telemetry.monte_carlo.series,
+                    'p90_bull', 'p50_median', 'P90 Bull', 'P50 Median',
+                    green, blue,
+                    (p) => `Yr ${p.year}: P90 ${fmtInr(p.p90_bull)} | P50 ${fmtInr(p.p50_median)} | P10 ${fmtInr(p.p10_bear)}`,
+                    { key: 'p10_bear', label: 'P10 Bear', color: amber }
+                );
+            }
         } else if (tabName === 'market') {
             if (STATE.telemetry.backtest) {
                 drawDualLineChart(
@@ -544,6 +562,11 @@
         };
         const goalPayload = {
             target_today_inr: Number(document.getElementById('goalTargetInput').value || 1000000),
+            monthly_sip: sipPayload.monthly_sip,
+            annual_step_up_pct: sipPayload.annual_step_up_pct,
+            volatility_pct: (STATE.telemetry.backtest && STATE.telemetry.backtest.annualized_volatility_pct > 5)
+                ? STATE.telemetry.backtest.annualized_volatility_pct
+                : 16,
             annual_return_pct: sipPayload.annual_return_pct,
             years: sipPayload.years,
             inflation_pct: 6,
@@ -611,6 +634,14 @@
                 hvBox.textContent =
                     `Sec 112A Tax-Harvesting (${hv.years}Y Plan): Booking Rs.1,25,000 exempt LTCG annually saves ${fmtInr(hv.net_tax_saved)} tax (Tax drops from ${fmtInr(hv.tax_without_harvest)} to ${fmtInr(hv.tax_with_harvest)} across ${fmtInr(hv.total_exempt_step_up)} basis step-up).`;
                 hvBox.classList.remove('hidden');
+            }
+            const mc = goalData.monte_carlo;
+            const mcBox = document.getElementById('mcProbBanner');
+            if (mc && mcBox) {
+                STATE.telemetry.monte_carlo = mc;
+                mcBox.textContent =
+                    `Monte Carlo (${mc.num_paths} GBM Paths @ ${mc.volatility_pct}% Vol): Goal Hit Probability ${mc.goal_success_prob_pct}% vs Inflation Target ${fmtInr(mc.target_nominal)} | P10 Bear ${fmtInr(mc.p10_terminal)} | P50 Median ${fmtInr(mc.p50_terminal)} | P90 Bull ${fmtInr(mc.p90_terminal)}.`;
+                mcBox.classList.remove('hidden');
             }
         }
 
@@ -970,6 +1001,111 @@
         });
     }
 
+    async function runFinancialCouncil() {
+        const btn = document.getElementById('btnRunCouncil');
+        if (btn) btn.disabled = true;
+        appendCopilotBubble('user', 'Convene 3-Agent Financial Council (CA + Fraud + Quant)');
+        const pendingEl = appendCopilotBubble('assistant', 'Running 3 specialist agents across live telemetry...', 'COUNCIL');
+        const data = await postJson(
+            '/api/copilot/council',
+            {
+                context: STATE.telemetry,
+                provider: STATE.aiSettings.provider,
+                model: STATE.aiSettings.model,
+            },
+            STATE.aiSettings.apiKey ? { 'X-User-AI-Key': STATE.aiSettings.apiKey } : {}
+        );
+        if (btn) btn.disabled = false;
+        pendingEl.remove();
+        if (!data || !data.success) {
+            appendCopilotBubble('assistant', 'Council unavailable right now.', 'ERROR');
+            return;
+        }
+        STATE.telemetry.council = data;
+        const lines = [
+            `Combined Annual Impact Identified: Rs.${Number(data.total_annual_rupee_impact || 0).toLocaleString('en-IN')}`,
+            ...(data.agents || []).map((a) => `- ${a.role} [${a.tag}]: ${a.brief}`),
+            'Ranked Execution Plan:',
+            ...(data.priority_plan || []),
+        ];
+        appendCopilotBubble('assistant', lines.join('\n'), `3-AGENT COUNCIL (${String(data.engine_used || 'deterministic').toUpperCase()})`);
+    }
+
+    async function processBankPdfDataUrl(dataUrl, labelName) {
+        showToast(`Scanning bank statement PDF: ${labelName}...`, false);
+        const data = await postJson(
+            '/api/ledger/parse_pdf',
+            {
+                pdf_data: String(dataUrl || ''),
+                monthly_budget_target: Number(document.getElementById('monthlyBudgetInput').value || 0),
+                provider: STATE.aiSettings.provider,
+                model: STATE.aiSettings.model,
+            },
+            STATE.aiSettings.apiKey ? { 'X-User-AI-Key': STATE.aiSettings.apiKey } : {}
+        );
+        if (data && data.normalized_feed) {
+            document.getElementById('smsLedgerInput').value = data.normalized_feed;
+            await runLedgerAnalysis();
+            showToast(`Extracted ${data.transaction_count} transactions from PDF (${data.extraction_source || 'Gemini'}).`, false);
+        }
+    }
+
+    async function testSampleBankPdf() {
+        const btn = document.getElementById('btnScanDemoPdf');
+        if (btn) { btn.disabled = true; btn.textContent = 'Scanning PDF...'; }
+        try {
+            const resp = await fetch('/api/ledger/sample_pdf');
+            if (!resp.ok) { showToast('Could not generate sample PDF.', true); return; }
+            const blob = await resp.blob();
+            const rd = new FileReader();
+            rd.onload = () => processBankPdfDataUrl(String(rd.result || ''), 'sample_indian_bank_statement.pdf');
+            rd.readAsDataURL(blob);
+        } catch (_) {
+            showToast('Failed to fetch sample bank statement PDF.', true);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Test Sample PDF'; }
+        }
+    }
+
+    function exportAuditDossierHtml() {
+        const esc = (s) => String(s || '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        const t = STATE.telemetry;
+        const score = document.getElementById('healthScoreNum').textContent || '--';
+        const ledger = t.ledger || {};
+        const tax = t.tax || {};
+        const fraud = t.fraud || {};
+        const bt = t.backtest || {};
+        const cmp = t.comparison || {};
+        const mc = t.monte_carlo || {};
+        const news = t.news_impact || {};
+        const sme = t.sme || {};
+
+        const htmlDoc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>ArthaLedger Executive Financial Dossier</title>`
+            + `<style>body{font-family:system-ui,-apple-system,sans-serif;max-width:860px;margin:28px auto;padding:0 20px;color:#0f2a24;line-height:1.5}`
+            + `h1{margin:0 0 4px} .meta{color:#4a635c;font-size:13px;margin-bottom:18px}`
+            + `.card{border:1px solid #d1dbd5;border-radius:8px;padding:14px 16px;margin-bottom:12px;background:#f9fbf9}`
+            + `.kpi{font-weight:700;font-size:17px;color:#0d8a5f}</style></head><body>`
+            + `<h1>ArthaLedger Financial Audit Dossier</h1>`
+            + `<div class="meta">Generated: ${esc(new Date().toLocaleString('en-IN'))} | Financial Health Index: <strong>${esc(score)}</strong> | Engine: Python Deterministic + Gemini 3.5</div>`
+            + `<div class="card"><h3>01. UPI & Bank Ledger Cashflow</h3><div class="kpi">Surplus: ${esc(fmtInr(ledger.net_cashflow))} (In ${esc(fmtInr(ledger.total_income))} vs Out ${esc(fmtInr(ledger.total_spent))}, ${esc(ledger.savings_rate_pct)}% saved)</div><p>Subscription Annual Leak: ${esc(fmtInr(ledger.subscription_annual_runrate || 0))}/yr | Flagged Anomalies: ${esc((ledger.anomalies || []).length)}</p></div>`
+            + `<div class="card"><h3>02. UPI Scam & QR Forensics</h3><div class="kpi">Verdict: ${esc(fraud.verdict)} (Threat Index: ${esc(fraud.risk_score)}/100)</div><p>${esc(fraud.recommended_action)}</p></div>`
+            + `<div class="card"><h3>03. Budget 2025 Tax & Monte Carlo Wealth</h3><div class="kpi">${esc(tax.recommended_regime)} saves ${esc(fmtInr(tax.net_tax_savings))}</div><p>${esc(tax.summary)}</p><p>Monte Carlo (${esc(mc.num_paths)} Paths): Goal Hit ${esc(mc.goal_success_prob_pct)}% | P10 ${esc(fmtInr(mc.p10_terminal))} | P50 ${esc(fmtInr(mc.p50_terminal))} | P90 ${esc(fmtInr(mc.p90_terminal))}</p></div>`
+            + `<div class="card"><h3>04. Live AMFI Fund Analytics & India Macro News</h3><div class="kpi">${esc(bt.label)} (${esc(bt.total_return_pct)}%, Sharpe ${esc(bt.sharpe_ratio)})</div><p>AMFI Compare Correlation: r=${esc(cmp.correlation)} | Macro Sentiment: ${esc(news.regime)} (${esc(news.sentiment_score)}/100)</p></div>`
+            + `<div class="card"><h3>05. SME GST & 90-Day Working Capital</h3><div class="kpi">Invoice Total: ${esc(fmtInr(sme.grand_invoice_total))} | Net GST Payable: ${esc(fmtInr(sme.net_gst_payable))}</div><p>35% Delayed-Receivable Runway: ${esc(sme.stress_runway_days)} days</p></div>`
+            + `</body></html>`;
+
+        const blob = new Blob([htmlDoc], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'arthaledger_executive_dossier.html';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showToast('Exported standalone Audit Dossier (.html).', false);
+    }
+
     async function loadPersona(personaId) {
         const btn = document.getElementById('btnLoadPersona');
         btn.disabled = true;
@@ -1102,6 +1238,7 @@
             const collapsed = band.classList.toggle('collapsed');
             document.getElementById('btnToggleWelcome').textContent = collapsed ? 'Expand Welcome' : 'Collapse Intro';
         });
+        document.getElementById('btnDownloadDossier').addEventListener('click', exportAuditDossierHtml);
         document.getElementById('btnPrintDossier').addEventListener('click', () => window.print());
         document.getElementById('btnToggleTheme').addEventListener('click', () => {
             const html = document.documentElement;
@@ -1137,22 +1274,7 @@
             const rd = new FileReader();
             rd.onload = async () => {
                 if (isPdf) {
-                    showToast(`Scanning bank statement PDF: ${f.name}...`, false);
-                    const data = await postJson(
-                        '/api/ledger/parse_pdf',
-                        {
-                            pdf_data: String(rd.result || ''),
-                            monthly_budget_target: Number(document.getElementById('monthlyBudgetInput').value || 0),
-                            provider: STATE.aiSettings.provider,
-                            model: STATE.aiSettings.model,
-                        },
-                        STATE.aiSettings.apiKey ? { 'X-User-AI-Key': STATE.aiSettings.apiKey } : {}
-                    );
-                    if (data && data.normalized_feed) {
-                        document.getElementById('smsLedgerInput').value = data.normalized_feed;
-                        await runLedgerAnalysis();
-                        showToast(`Extracted ${data.transaction_count} transactions from PDF (${data.extraction_source || 'Gemini'}).`, false);
-                    }
+                    await processBankPdfDataUrl(String(rd.result || ''), f.name);
                     return;
                 }
                 const data = await postJson('/api/ledger/parse_csv', {
@@ -1168,6 +1290,7 @@
             if (isPdf) rd.readAsDataURL(f);
             else rd.readAsText(f);
         });
+        document.getElementById('btnScanDemoPdf').addEventListener('click', testSampleBankPdf);
         document.getElementById('btnExportCsv').addEventListener('click', async () => {
             const res = await fetch('/api/ledger/export.csv', {
                 method: 'POST',
@@ -1249,6 +1372,7 @@
         });
         document.getElementById('btnComputeSme').addEventListener('click', runSmeAnalysis);
 
+        document.getElementById('btnRunCouncil').addEventListener('click', runFinancialCouncil);
         document.querySelectorAll('[data-copilot-q]').forEach((btn) => {
             btn.addEventListener('click', () => {
                 askCopilot(btn.dataset.copilotQ);
