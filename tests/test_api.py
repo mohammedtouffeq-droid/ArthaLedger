@@ -117,6 +117,17 @@ class TestArthaLedgerHttpApi(unittest.TestCase):
         self.assertTrue(captured["status"].startswith("200"))
         self.assertEqual(body.get("app"), "ArthaLedger")
 
+        for asset_q, marker in [
+            ("__artha_path__=/index.html", b"ArthaLedger"),
+            ("__artha_path__=/static/app.js", b"runLedgerAnalysis"),
+            ("__artha_path__=/api/market/mf_search&q=Parag%20Parikh", b"funds"),
+        ]:
+            captured.clear()
+            env_a = {"REQUEST_METHOD": "GET", "PATH_INFO": "/api/index", "QUERY_STRING": asset_q, "wsgi.input": io.BytesIO(b"")}
+            out = b"".join(wsgi_app(env_a, start_resp))
+            self.assertTrue(captured["status"].startswith("200"), asset_q)
+            self.assertIn(marker, out)
+
     def test_v2_csv_parse_health_score_and_mf_search_endpoints(self):
         c_code, csv_parsed = self._post("/api/ledger/parse_csv", {
             "csv_text": "Date,Description,Debit,Credit\n01-Nov,Client,,25000\n02-Nov,Swiggy,450,\n",

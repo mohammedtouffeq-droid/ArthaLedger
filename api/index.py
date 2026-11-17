@@ -30,7 +30,12 @@ def app(environ, start_response):
         parsed = urllib.parse.parse_qs(query)
         if "__artha_path__" in parsed:
             real_path = parsed["__artha_path__"][0]
-            remaining = [f"{k}={v}" for k, vals in parsed.items() if k != "__artha_path__" for v in vals]
+            remaining = [
+                f"{urllib.parse.quote_plus(k)}={urllib.parse.quote_plus(v)}"
+                for k, vals in parsed.items()
+                if k != "__artha_path__"
+                for v in vals
+            ]
             clean_q = "&".join(remaining)
             full_path = f"{real_path}?{clean_q}" if clean_q else real_path
         elif environ.get("HTTP_X_FORWARDED_URI") and environ["HTTP_X_FORWARDED_URI"].startswith("/api"):
