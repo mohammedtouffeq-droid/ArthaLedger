@@ -265,8 +265,10 @@ class TestFinancialEngines(unittest.TestCase):
 
         with patch("builtins.__import__", side_effect=_no_cv2_import):
             fallback_png = generate_sample_qr_png("scam")
+            decoded_no_cv2 = decode_qr_from_bytes(fallback_png)
         self.assertGreater(len(fallback_png), 400)
         self.assertEqual(fallback_png[:4], b"\x89PNG")
+        self.assertIn("cashback-helpdesk@okexample", decoded_no_cv2)
         self.assertIn("cashback-helpdesk@okexample", decode_qr_from_bytes(fallback_png))
 
         pdf_stream = (

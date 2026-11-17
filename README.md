@@ -3,6 +3,7 @@
 **Evidence-Cited Indian Personal & Small-Business Financial Intelligence Workbench**  
 Built for **Arthaton 2026** (`AI for Finance`).
 
+> **Live Production App:** https://arthaledger.vercel.app/  
 > **Demo Video (YouTube):** *[Upload under-5-minute working walkthrough to YouTube and paste Public/Unlisted URL here before submitting]*
 
 ---
